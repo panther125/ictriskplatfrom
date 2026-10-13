@@ -1,0 +1,36 @@
+[Unit]
+Description=Risk Platform Derived-Feature Python Runner (FastAPI)
+After=network.target
+
+[Service]
+Type=simple
+# 按实际部署路径修改 WorkingDirectory 与 ExecStart
+WorkingDirectory=/opt/risk-platform/python-runner
+ExecStart=/usr/bin/python3 /opt/risk-platform/python-runner/runner.py --port 8090 --workers 2
+# 如使用 venv，改为：/opt/risk-platform/python-runner/venv/bin/python
+Restart=always
+RestartSec=5
+# 运行账号（建议非 root）
+User=risk
+Group=risk
+# 只监听本机回环，无需开放防火墙端口
+Environment=PYTHONUTF8=1
+StandardOutput=append:/opt/risk-platform/python-runner/logs/runner.log
+StandardError=append:/opt/risk-platform/python-runner/logs/runner.log
+
+[Install]
+WantedBy=multi-user.target
+
+# ------------------------------------------------------------
+# 安装步骤（root 执行）：
+#   1. 部署代码到 /opt/risk-platform/python-runner，创建 logs 目录
+#   2. pip3 install -r requirements.txt
+#   3. cp risk-python-runner.service /etc/systemd/system/
+#   4. systemctl daemon-reload
+#   5. systemctl enable --now risk-python-runner
+#
+# 常用命令：
+#   systemctl status risk-python-runner     # 查看状态
+#   journalctl -u risk-python-runner -f     # 查看日志
+#   systemctl restart risk-python-runner    # 重启
+# ------------------------------------------------------------

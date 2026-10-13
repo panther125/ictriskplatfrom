@@ -1,0 +1,8 @@
+# 衍生特征 Python 执行服务依赖
+# 安装：pip install -r python-runner/requirements.txt
+# Windows / Linux 通用；pandas / numpy 为数据加工脚本的可选增强（缺失时服务仍可启动，
+# 但脚本中使用 pd / np 会报 ImportError，/health 可查看可用性）。
+fastapi>=0.110
+uvicorn>=0.29
+pandas>=2.0
+numpy>=1.26

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.riskstrategy.mapper.DecisionNodeMapper">
+
+    <select id="selectByVersionIdOrderById" resultType="DecisionNode">
+        SELECT id, version_id, node_id, node_type, title, x, y, condition_expr,
+               conclusion, reason_code, priority, ref_vars_json, params_json
+        FROM decision_node
+        WHERE version_id = #{versionId}
+        ORDER BY id ASC
+    </select>
+
+</mapper>

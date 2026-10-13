@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PMML version="4.4" xmlns="http://www.dmg.org/PMML-4_4">
+  <Header>
+    <Application name="Custom Add Model" version="1.0"/>
+    <Timestamp>2026-10-13</Timestamp>
+  </Header>
+  <DataDictionary>
+    <DataField name="a" optype="continuous" dataType="double"/>
+    <DataField name="b" optype="continuous" dataType="double"/>
+    <DataField name="sum" optype="continuous" dataType="double"/>
+  </DataDictionary>
+  <SimpleMathModel modelName="AddTwoNumbers" functionName="regression">
+    <MathExpression>
+      <Apply function="+">
+        <FieldRef field="a"/>
+        <FieldRef field="b"/>
+      </Apply>
+    </MathExpression>
+    <Output>
+      <OutputField name="sum" dataType="double" optype="continuous"/>
+    </Output>
+  </SimpleMathModel>
+</PMML>

@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.riskstrategy.mapper.TrackRecordMapper">
+
+    <sql id="baseColumns">
+        id, trace_id, strategy_id, strategy_name, version, env, source, input_json,
+        conclusion, reason_code, hit_rule, hit_path, total_elapsed_ms, engine_elapsed_ms,
+        degraded, total_score, business_key, channel, channel_code, sampling_reason,
+        degrade_count, created_at
+    </sql>
+
+    <select id="selectTop50ByCreatedAtDesc" resultType="TrackRecord">
+        SELECT <include refid="baseColumns"/>
+        FROM track_record
+        ORDER BY created_at DESC
+        LIMIT 50
+    </select>
+
+    <select id="search" resultType="TrackRecord">
+        SELECT <include refid="baseColumns"/>
+        FROM track_record
+        <where>
+            <if test="traceId != null and traceId != ''">
+                AND trace_id = #{traceId}
+            </if>
+            <if test="strategyId != null">
+                AND strategy_id = #{strategyId}
+            </if>
+            <if test="conclusion != null and conclusion != ''">
+                AND conclusion = #{conclusion}
+            </if>
+            <if test="version != null and version != ''">
+                AND version = #{version}
+            </if>
+        </where>
+        ORDER BY created_at DESC
+    </select>
+
+    <select id="countByTimeRange" resultType="int">
+        SELECT COUNT(*)
+        FROM track_record
+        WHERE created_at >= DATE_SUB(NOW(), INTERVAL #{minutes} MINUTE)
+    </select>
+
+    <select id="countDegradedByTimeRange" resultType="int">
+        SELECT COUNT(*)
+        FROM track_record
+        WHERE degraded = 1
+          AND created_at >= DATE_SUB(NOW(), INTERVAL #{minutes} MINUTE)
+    </select>
+
+    <select id="countSlowByTimeRange" resultType="int">
+        SELECT COUNT(*)
+        FROM track_record
+        WHERE total_elapsed_ms > #{thresholdMs}
+          AND created_at >= DATE_SUB(NOW(), INTERVAL #{minutes} MINUTE)
+    </select>
+
+    <select id="countExceptionsByTimeRange" resultType="int">
+        SELECT COUNT(*)
+        FROM track_record
+        WHERE conclusion = 'EXCEPTION'
+          AND created_at >= DATE_SUB(NOW(), INTERVAL #{minutes} MINUTE)
+    </select>
+
+    <select id="selectDegradeSources" resultType="java.util.Map">
+        SELECT source, COUNT(*) AS degradeCount
+        FROM track_record
+        WHERE degraded = 1
+          AND created_at >= DATE_SUB(NOW(), INTERVAL #{minutes} MINUTE)
+        GROUP BY source
+        ORDER BY degradeCount DESC
+        LIMIT #{limit}
+    </select>
+
+</mapper>

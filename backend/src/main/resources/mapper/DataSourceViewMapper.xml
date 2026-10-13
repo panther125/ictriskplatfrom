@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.riskstrategy.mapper.DataSourceViewMapper">
+
+    <select id="existsByCode" resultType="boolean">
+        SELECT COUNT(*) &gt; 0
+        FROM data_source_view
+        WHERE code = #{code}
+          AND deleted = 0
+    </select>
+
+    <!-- 按编码取有效视图（不含已下线） -->
+    <select id="selectByCode" resultType="DataSourceView">
+        SELECT *
+        FROM data_source_view
+        WHERE code = #{code}
+          AND deleted = 0
+        LIMIT 1
+    </select>
+
+    <!-- 发布：状态置 PUBLISHED -->
+    <update id="publishById">
+        UPDATE data_source_view
+        SET status = 'PUBLISHED', updated_at = NOW()
+        WHERE id = #{id}
+          AND deleted = 0
+    </update>
+
+    <!-- 下线（逻辑删除）：deleted 置为该行 id（天然唯一），状态置 OFFLINE；有效行恒为 deleted=0 -->
+    <update id="offlineById">
+        UPDATE data_source_view
+        SET deleted = id, status = 'OFFLINE', updated_at = NOW()
+        WHERE id = #{id}
+          AND deleted = 0
+    </update>
+
+</mapper>

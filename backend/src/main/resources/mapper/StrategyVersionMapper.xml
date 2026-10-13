@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.riskstrategy.mapper.StrategyVersionMapper">
+
+    <select id="selectByStrategyIdOrderById" resultType="StrategyVersion">
+        SELECT id, strategy_id, version_no, rev, status, state_label, bundle, change_count,
+               grayscale_pct, submitted_by, published_by, published_at, created_at, updated_at
+        FROM strategy_version
+        WHERE strategy_id = #{strategyId}
+        ORDER BY id ASC
+    </select>
+
+</mapper>

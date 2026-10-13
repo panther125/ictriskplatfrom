@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.riskstrategy.mapper.FeatureTestCaseMapper">
+
+    <select id="selectByFeatureId" resultType="FeatureTestCase">
+        SELECT id, feature_id, case_name, inputs_json, expected, result
+        FROM feature_test_case
+        WHERE feature_id = #{featureId}
+    </select>
+
+</mapper>

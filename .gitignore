@@ -1,0 +1,31 @@
+# 依赖与构建产物（可重新生成）
+frontend/node_modules/
+frontend/dist/
+backend/target/
+
+# 日志与 Vite 临时文件
+*.log
+.tmp-check/
+frontend/.tmp-verify/
+frontend/vite.config.js.timestamp-*.mjs
+
+# 运行期数据（上传文件目录，仅旧格式回退使用）
+uploads/
+
+# 工具 / IDE 目录
+.idea/
+.trae/
+.workbuddy/
+__pycache__/
+*.pyc
+
+# 本地备份与设计稿（不入库）
+.backup-*/
+design_full/
+vibe_images/
+backend/META-INF/
+*.pdf
+
+# 系统文件
+.DS_Store
+Thumbs.db

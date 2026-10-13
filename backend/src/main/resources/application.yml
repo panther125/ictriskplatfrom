@@ -1,0 +1,56 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: risk-platform-backend
+  datasource:
+    url: jdbc:mysql://localhost:3306/risk_platform?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: root
+    password: root
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  # 显式固定日期序列化格式：LocalDateTime 输出 ISO-8601 字符串，避免升级后变成时间戳数组
+  jackson:
+    time-zone: Asia/Shanghai
+    serialization:
+      write-dates-as-timestamps: false
+  # CSV / PMML 视图文件上传（POST /api/views/upload）
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 22MB
+mybatis-plus:
+  # 所有 SQL 统一收敛在 resources/mapper/*.xml
+  mapper-locations: classpath*:/mapper/**/*.xml
+  type-aliases-package: com.riskstrategy.entity
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    banner: false
+    db-config:
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+# 前端来源白名单（模式匹配；生产环境替换为固定前端域名）
+# HTTP 视图在线验证（POST /api/views/validate 且 sourceType=HTTP）
+risk:
+  # CSV / PMML 上传文件的本地保存目录（相对后端工作目录，或写绝对路径）
+  upload-dir: uploads
+  # 衍生特征单次脚本执行超时（毫秒）：特征自身 timeout_ms 优先，其余用这里的默认值
+  derived:
+    timeout-ms: 300
+  # Python 执行服务（独立进程，需手动启动：python python-runner/runner.py）
+  python-runner:
+    url: http://127.0.0.1:8090
+  http-validator:
+    # 是否拦截解析到内网 / 回环地址的 Host（SSRF 防护）。
+    # 默认 false：平台与数据源多在同一内网，联调需要访问内网服务；公网部署建议改为 true。
+    block-private-host: false
+
+cors:
+  allowed-origin-patterns: http://localhost:*,http://127.0.0.1:*
+
+logging:
+  level:
+    com.riskstrategy: INFO

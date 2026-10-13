@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.riskstrategy.mapper.CrossTreeCellMapper">
+
+    <select id="selectByTreeIdAndSliceName" resultType="CrossTreeCell">
+        SELECT id, tree_id, slice_name, row_key, col_key, conclusion, score, remark
+        FROM cross_tree_cell
+        WHERE tree_id = #{treeId}
+          AND slice_name = #{sliceName}
+    </select>
+
+    <select id="selectByTreeId" resultType="CrossTreeCell">
+        SELECT id, tree_id, slice_name, row_key, col_key, conclusion, score, remark
+        FROM cross_tree_cell
+        WHERE tree_id = #{treeId}
+    </select>
+
+    <delete id="deleteByTreeId">
+        DELETE FROM cross_tree_cell WHERE tree_id = #{treeId}
+    </delete>
+
+    <!-- 仅清理当前切片，避免保存一个切片时把其它切片的数据一起删掉 -->
+    <delete id="deleteByTreeIdAndSliceName">
+        DELETE FROM cross_tree_cell
+        WHERE tree_id = #{treeId}
+          AND slice_name = #{sliceName}
+    </delete>
+
+    <insert id="insertBatch">
+        INSERT INTO cross_tree_cell (tree_id, slice_name, row_key, col_key, conclusion, score, remark)
+        VALUES
+        <foreach collection="list" item="c" separator=",">
+            (#{c.treeId}, #{c.sliceName}, #{c.rowKey}, #{c.colKey}, #{c.conclusion}, #{c.score}, #{c.remark})
+        </foreach>
+    </insert>
+
+</mapper>

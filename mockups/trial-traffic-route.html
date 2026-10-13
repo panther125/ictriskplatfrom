@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>试算中心 · 按切流判定命中版本执行 — 改动稿 v1</title>
+<link rel="stylesheet" href="../frontend/src/styles/design.css" />
+<style>
+  body { padding: 28px 36px 72px; }
+  .mk-title { font-size: 20px; font-weight: 700; color: var(--ink-1); }
+  .mk-sub { color: var(--ink-3); font-size: 13px; margin: 4px 0 26px; }
+  .mk-sec { margin-bottom: 44px; }
+  .mk-sec-h { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .mk-sec-h b { font-size: 15px; color: var(--ink-1); }
+  .mk-badge {
+    display: inline-flex; align-items: center; height: 22px; padding: 0 10px;
+    border-radius: 999px; background: rgba(232,116,15,.12); color: var(--feature);
+    font-size: 12px; font-weight: 600; white-space: nowrap;
+  }
+  .mk-context {
+    background: #FFF9F2; border: 1px solid var(--stroke-weak); border-radius: 10px;
+    padding: 10px 14px; font-size: 12.5px; color: var(--ink-2); line-height: 1.9; margin-bottom: 16px;
+  }
+  .mk-context b { color: var(--ink-1); }
+  .mk-note {
+    border: 1px dashed #E8740F; background: #FFF7EF; border-radius: 10px;
+    padding: 10px 14px; font-size: 12.5px; color: #8A4A0F; line-height: 1.9;
+  }
+  .mk-note b { color: #C2410C; }
+  .mk-newbtn {
+    border-color: #E8740F !important; color: #C2410C !important; font-weight: 600;
+    position: relative;
+  }
+  .mk-newbtn::after {
+    content: attr(data-tag); position: absolute; top: -9px; right: -6px;
+    background: #E8740F; color: #fff; font-size: 10px; font-weight: 600;
+    padding: 0 6px; border-radius: 999px; line-height: 15px; white-space: nowrap;
+  }
+  .stage {
+    border: 1px solid var(--stroke-weak); border-radius: 12px;
+    overflow: hidden; background: var(--bg-workspace); padding: 20px;
+  }
+  .stage .card { max-width: 800px; }
+  .stage .card + .card { margin-top: 16px; }
+  .stage .card-title .sub { margin-left: auto; }
+  .mk-caption { font-size: 12px; color: var(--ink-3); margin: 8px 0 0; line-height: 1.9; }
+  .mk-caption b { color: var(--ink-2); }
+  /* 节点明细表 */
+  .nd-table { font-size: 12px; }
+  .nd-table thead th { padding: 6px 8px; font-size: 12px; white-space: nowrap; }
+  .nd-table tbody td { padding: 7px 8px; height: auto; vertical-align: top; line-height: 1.65; }
+  .nd-table .hit-row td { background: rgba(232,116,15,.10); }
+  .nd-node b { font-weight: 600; color: var(--ink-1); }
+  .nd-node .ty { font-size: 11px; margin-top: 2px; }
+  .mini-tag {
+    display: inline-block; font-size: 10.5px; line-height: 16px; padding: 0 6px;
+    border-radius: 4px; background: var(--bg-workspace); border: 1px solid var(--stroke-weak);
+    color: var(--ink-2); margin-left: 4px; vertical-align: 1px; font-family: var(--font-mono, monospace);
+  }
+  .mk-kv { font-size: 12px; color: #5C4A38; }
+  .mk-kv .k4 { color: var(--ink-3); }
+  /* 特征计算块 */
+  .fr-block { border: 1px solid var(--stroke-weak); border-radius: 10px; padding: 10px 12px; margin-top: 10px; }
+  .fr-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .fr-head .code { font-family: var(--font-mono, monospace); font-weight: 600; color: var(--ink-1); font-size: 13px; }
+  .fr-line { font-size: 12px; color: #5C4A38; line-height: 1.9; margin-top: 6px; }
+  .fr-line .lbl { color: var(--ink-3); margin-right: 4px; }
+  .fr-warn { font-size: 12px; color: #B45309; line-height: 1.9; margin-top: 6px; }
+  .hit-pill {
+    display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 10px;
+    border-radius: 999px; background: rgba(26,127,90,.12); color: var(--pass);
+    font-size: 12px; font-weight: 600;
+  }
+</style>
+</head>
+<body>
+
+<div class="mk-title">试算中心 · 按切流判定命中版本执行 — 改动稿 v1</div>
+<div class="mk-sub">试算不再手动选版本：按策略切流配置判定本笔命中哪个版本 → 运行命中版本 → 展开「逐节点计算 / 特征真实计算 / 最终输出值」· 零 DDL · 样式挂载真实 frontend/src/styles/design.css</div>
+
+<div class="mk-context">
+  <b>改动点：</b><br/>
+  ① 版本下拉新增首项 <b>「自动 · 按切流判定（推荐）」并设为默认</b>——自动 = 不带 version_id，由后端按切流配置模拟判定；手动选具体版本的能力保留（调试用）；<br/>
+  ② 结果区新增 <b>「流量判定」卡</b>：切流方式 + 试算键哈希槽位 + 候选版本表（份额区间 / 命中高亮 / 不参与原因）+ 判定结论行；<br/>
+  ③ 「执行路径」升级为 <b>逐节点明细</b>：判定表达式 / 读取变量 / 结果 / 耗时，命中行高亮；<br/>
+  ④ 新增 <b>「特征计算」卡</b>：决策图引用到的特征走既有四引擎链<b>真实执行</b>（出参回填 feat.* 参与条件求值），引擎失败才回退内置派生并挂 ⚠；<br/>
+  ⑤ 「结论与返回报文」重排为 <b>「最终输出」卡</b>：结论 + 原因码 + 命中节点 + 执行版本（自动判定）+ 报文。
+</div>
+
+<!-- ===================== 一、版本选择 ===================== -->
+<div class="mk-sec">
+  <div class="mk-sec-h"><b>一、试算对象与版本选择（页头右区）</b><span class="mk-badge">新增：自动选项 · 设为默认</span></div>
+  <div class="stage">
+    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;justify-content:flex-end;">
+      <span style="font-size:12.5px;color:var(--ink-2);">试算策略</span>
+      <select class="select" style="width:236px"><option>loan_apply · 还款能力准入策略</option></select>
+      <span style="font-size:12.5px;color:var(--ink-2);">版本</span>
+      <select class="select mk-newbtn" data-tag="新增并默认" style="width:300px">
+        <option selected>自动 · 按切流判定</option>
+        <option>v12 · 已发布 · 8 节点 · 流量 100%</option>
+        <option>v11 · 已下线 · 未编排 · 流量 0%</option>
+      </select>
+    </div>
+    <div class="mk-caption">
+      <b>自动</b> → 请求不带 version_id，后端判定命中版本后执行；出结果后左栏「试算对象」标签显示 <span class="mono">loan_apply · 自动 → 命中 v11</span>。<br/>
+      手动选具体版本 → 与现状完全一致（不显示流量判定卡），解析入参 / 批量回放 / 影子对比不受影响。
+    </div>
+  </div>
+</div>
+
+<!-- ===================== 二、流量判定卡 ===================== -->
+<div class="mk-sec">
+  <div class="mk-sec-h"><b>二、流量判定卡（仅自动模式出现）</b><span class="mk-badge">新增</span></div>
+  <div class="stage">
+
+    <p style="font-size:12.5px;color:var(--ink-2);margin:0 0 10px;">a) 多版本切流形态 —— 示意：loan_apply 切流 70% → v11 / 30% → v13（切流演示态，v13 发布后）</p>
+    <div class="card">
+      <div class="card-title">
+        <span>流量判定 · 命中版本</span>
+        <span class="sub">按切流配置模拟 · 不连生产路由</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
+        <span class="tag tag-gray" style="background:rgba(194,65,12,.10);color:var(--decision);border:none;">百分比切流</span>
+        <span class="mk-kv"><span class="k4">试算键</span> user_id = <b class="mono">U100823</b> → 哈希槽位 <b class="mono">63</b></span>
+      </div>
+      <table class="table">
+        <thead><tr><th>版本</th><th>状态</th><th>份额区间</th><th>份额</th><th style="width:120px">判定</th></tr></thead>
+        <tbody>
+          <tr>
+            <td class="mono">v13</td>
+            <td><span class="tag tag-published">已发布</span></td>
+            <td class="mono">hash 0–29</td>
+            <td class="mono">30%</td>
+            <td style="color:var(--ink-3);font-size:12.5px;">—</td>
+          </tr>
+          <tr class="hit-row">
+            <td class="mono"><b style="color:var(--decision);">v11</b></td>
+            <td><span class="tag tag-published">已发布</span></td>
+            <td class="mono">hash 30–99</td>
+            <td class="mono">70%</td>
+            <td><span class="hit-pill">● 命中</span></td>
+          </tr>
+          <tr style="opacity:.55;">
+            <td class="mono">v12</td>
+            <td><span class="tag tag-draft">待审批</span></td>
+            <td class="mono">—</td>
+            <td class="mono">10%</td>
+            <td style="font-size:12px;color:var(--ink-3);">不参与 · 未发布</td>
+          </tr>
+        </tbody>
+      </table>
+      <div style="margin-top:10px;padding:9px 12px;background:#FFFCF8;border-radius:8px;font-size:13px;">
+        命中 <b class="mono" style="color:var(--decision);">v11</b>：哈希槽位 <b class="mono">63</b> ∈ [30, 100) → 70% 份额段。
+        <span style="color:var(--ink-2);font-size:12.5px;">换 <span class="mono">user_id = U100003</span>（槽位 21）将命中 v13 —— 同一输入稳定命中同一版本，可复现。</span>
+      </div>
+      <div class="fr-warn">⚠ v12 的规则份额 10% 与其状态「待审批」不一致（历史脏数据），已按不参与处理；份额合计 ≠ 100% 时会按比例归一化并提示。</div>
+    </div>
+
+    <p style="font-size:12.5px;color:var(--ink-2);margin:22px 0 10px;">b) 单版本全量形态 —— loan_apply 真实现状（v11 100%，v12 待审批不参与）</p>
+    <div class="card">
+      <div class="card-title">
+        <span>流量判定 · 命中版本</span>
+        <span class="sub">按切流配置模拟</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
+        <span class="tag tag-gray" style="background:rgba(194,65,12,.10);color:var(--decision);border:none;">百分比切流</span>
+        <span class="mk-kv"><span class="k4">试算键</span> user_id = <b class="mono">U100823</b> → 哈希槽位 <b class="mono">63</b></span>
+      </div>
+      <table class="table">
+        <thead><tr><th>版本</th><th>状态</th><th>份额区间</th><th>份额</th><th style="width:120px">判定</th></tr></thead>
+        <tbody>
+          <tr class="hit-row">
+            <td class="mono"><b style="color:var(--decision);">v11</b></td>
+            <td><span class="tag tag-published">已发布</span></td>
+            <td class="mono">hash 0–99</td>
+            <td class="mono">100%</td>
+            <td><span class="hit-pill">● 命中</span></td>
+          </tr>
+          <tr style="opacity:.55;">
+            <td class="mono">v12</td>
+            <td><span class="tag tag-draft">待审批</span></td>
+            <td class="mono">—</td>
+            <td class="mono">10%</td>
+            <td style="font-size:12px;color:var(--ink-3);">不参与 · 未发布</td>
+          </tr>
+        </tbody>
+      </table>
+      <div style="margin-top:10px;padding:9px 12px;background:#FFFCF8;border-radius:8px;font-size:13px;">
+        仅一个线上版本，全量命中 <b class="mono" style="color:var(--decision);">v11</b>（100%）——试算照常运行 v11。
+      </div>
+    </div>
+
+    <p style="font-size:12.5px;color:var(--ink-2);margin:22px 0 10px;">c) 其它判定形态（提示行样式）</p>
+    <div class="card">
+      <div class="fr-warn" style="margin-top:0;">⚠ 白名单切流：白名单明细未存库（规则只存人数），模拟按兜底版本 v8 执行；如需按人验证请补齐白名单名单。</div>
+      <div class="fr-warn">⚠ v8 限定渠道 APP_IOS，与请求渠道 APP 不符，本轮不参与；限定条件全部不匹配时忽略限定继续判定。</div>
+      <div class="fr-warn">⚠ 该策略没有在线版本（均已下线），按配置最完整的版本 v12 试算。</div>
+    </div>
+
+  </div>
+  <p class="mk-caption">判定算法：候选 = 状态「已发布 / 灰度中」且规则 ACTIVE 的版本（待审 / 草稿 / 已下线灰显不参与）；单版本直接全量命中；百分比 / 随机模式按 <span class="mono">md5(user_id) 前 8 位 % 100</span> 定槽位，区间按 新→旧 累加；白名单走兜底版本；脏数据归一化并置 ⚠。详见 docs/trial-traffic-route.md §三。</p>
+</div>
+
+<!-- ===================== 三、执行区（逐节点 / 特征 / 输出） ===================== -->
+<div class="mk-sec">
+  <div class="mk-sec-h"><b>三、命中后的执行区（推演：命中带图版本 → 以 loan_apply v12 真实节点 + 真实特征数据展示）</b><span class="mk-badge">逐节点明细升级 · 特征计算新增 · 最终输出重排</span></div>
+  <div class="stage">
+
+    <!-- 卡 A：逐节点明细 -->
+    <div class="card">
+      <div class="card-title">
+        <span>执行路径 · 逐节点计算</span>
+        <span class="mono" style="font-size:12.5px;color:var(--ink-2)">8 节点 · traceId tr_ab12cd34</span>
+      </div>
+      <table class="table nd-table">
+        <thead>
+          <tr><th style="width:132px">节点</th><th>判定表达式 / 计算</th><th style="width:190px">读取变量</th><th style="width:84px">结果</th><th style="width:56px">耗时</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="nd-node"><b>n_001</b> 开始<span class="mini-tag">START</span></td>
+            <td class="mono">event = LOAN_APPLY</td>
+            <td class="mk-kv mono">param.user_id = U100823 · param.apply_amount = 50000 · param.channel = APP</td>
+            <td><span class="badge badge-unconfig">信息</span></td>
+            <td class="mono">0.3ms</td>
+          </tr>
+          <tr>
+            <td class="nd-node"><b>n_002</b> 取数·用户信息<span class="mini-tag">DATA</span></td>
+            <td class="mono">view.risk_user_info · 12 变量</td>
+            <td class="mk-kv mono">view.risk_user_info（试算按内置派生口径）</td>
+            <td><span class="badge badge-unconfig">信息</span></td>
+            <td class="mono">32.4ms</td>
+          </tr>
+          <tr>
+            <td class="nd-node"><b>n_003</b> 特征·逾期等级<span class="mini-tag">FEATURE</span></td>
+            <td class="mono">user_overdue_level = H</td>
+            <td class="mk-kv mono">user_overdue_level = <b>128.0</b>（真实特征计算）</td>
+            <td><span class="badge badge-unconfig">未满足</span></td>
+            <td class="mono">21.7ms</td>
+          </tr>
+          <tr>
+            <td class="nd-node"><b>n_004</b> 分支·风险分档<span class="mini-tag">BRANCH</span></td>
+            <td class="mono" style="color:var(--ink-3);">—（未登记可求值表达式）</td>
+            <td class="mk-kv mono" style="color:var(--ink-3);">—</td>
+            <td><span class="badge badge-unconfig">信息</span></td>
+            <td class="mono">2.1ms</td>
+          </tr>
+          <tr>
+            <td class="nd-node"><b>n_005</b> 决策·逾期准入<span class="mini-tag">DECISION</span></td>
+            <td class="mono">feat.user_overdue_level == 'H' and view.risk_user_info.overdue_cnt &gt;= 3</td>
+            <td class="mk-kv mono">feat.user_overdue_level = <b>128.0</b> · view.risk_user_info.overdue_cnt = 3</td>
+            <td><span class="badge badge-unconfig">未命中</span></td>
+            <td class="mono">0.4ms</td>
+          </tr>
+          <tr>
+            <td class="nd-node"><b>n_006</b> 交叉决策树<span class="mini-tag">CROSS</span></td>
+            <td class="mono" style="color:var(--ink-3);">—（未登记切片求值）</td>
+            <td class="mk-kv mono">param.channel = APP · param.risk_score = 742</td>
+            <td><span class="badge badge-unconfig">信息</span></td>
+            <td class="mono">1.2ms</td>
+          </tr>
+          <tr>
+            <td class="nd-node"><b>n_007</b> 动作·TERMINATE<span class="mini-tag">ACTION</span></td>
+            <td class="mono" style="color:var(--ink-3);">—</td>
+            <td class="mk-kv mono" style="color:var(--ink-3);">—</td>
+            <td><span class="badge badge-unconfig">信息</span></td>
+            <td class="mono">0.6ms</td>
+          </tr>
+          <tr>
+            <td class="nd-node"><b>n_008</b> 结束·组装输出<span class="mini-tag">END</span></td>
+            <td class="mono">conclusion / trace</td>
+            <td class="mk-kv mono" style="color:var(--ink-3);">—</td>
+            <td><span class="badge badge-unconfig">输出</span></td>
+            <td class="mono">0.1ms</td>
+          </tr>
+        </tbody>
+      </table>
+      <div style="margin-top:12px;padding:10px 12px;background:#FFFCF8;border-radius:8px;font-size:13.5px;">
+        总耗时 <b style="color:var(--decision);">74.9ms</b>（节点 58.8 + 特征真实执行 16.1）· 结论 <span class="badge badge-reject">REJECT</span> · 命中规则 <span class="mono">R007 逾期准入</span> · 结论来源 <span class="mono">默认规则集（未命中编排条件）</span>
+        <span class="mono" style="float:right;font-size:12.5px;color:var(--ink-2)">v12 · 自动判定命中</span>
+      </div>
+      <p class="mk-caption"><b>命中行高亮</b>（如决策命中时为绿色「命中·短路」，其余节点标注被短路）；读取变量缺值灰显。本图按真实数据推演：feature 17 真实返回数值 <span class="mono">128.0</span>（天口径），而条件按字符串 <span class="mono">'H'</span> 比较 → 节点<b>如实未命中</b>、结论走默认规则集——此前「硬编码 H」掩盖了这处口径差异，升级后如实暴露（结论仍为 REJECT · RISK_OVERDUE_HIGH）。</p>
+    </div>
+
+    <!-- 卡 B：特征计算 -->
+    <div class="card">
+      <div class="card-title">
+        <span>特征计算</span>
+        <span class="sub">决策图引用特征 1 个 · 引擎真实执行 · 出参回填 feat.*</span>
+      </div>
+      <div class="fr-block">
+        <div class="fr-head">
+          <span class="code">user_overdue_level</span>
+          <span style="font-size:12.5px;color:var(--ink-2)">逾期等级</span>
+          <span class="mini-tag">Python 引擎</span>
+          <span class="mini-tag">真实 16.1ms</span>
+          <span class="mini-tag">出参 result = 128.0</span>
+        </div>
+        <div class="fr-line"><span class="lbl">表达式</span><span class="mono">def apply(inp, ctx): json_str = @@url_json_dashboard; val = data["data"]["metrics"][0]["value"]; return val …</span></div>
+        <div class="fr-line"><span class="lbl">引用实值</span><span class="mono">@@url_json_dashboard = {"data":{"metrics":[{"value":128.0}]}}（引擎内部真实取数）</span></div>
+        <div class="fr-line"><span class="lbl">回填</span>出参 result → <span class="mono"><b>feat.user_overdue_level = 128.0</b></span>（引用名口径），节点 / 条件按此求值</div>
+      </div>
+
+      <p style="font-size:12.5px;color:var(--ink-2);margin:16px 0 0;">带出入参形态（示意：引用 <span class="mono">dreiver_feature</span>，Java 引擎）：</p>
+      <div class="fr-block">
+        <div class="fr-head">
+          <span class="code">dreiver_feature</span>
+          <span style="font-size:12.5px;color:var(--ink-2)">逾期等级</span>
+          <span class="mini-tag">Java 引擎</span>
+          <span class="mini-tag">真实 2.4ms</span>
+          <span class="mini-tag">出参 result = 350.0</span>
+        </div>
+        <div class="fr-line"><span class="lbl">入参取值</span><span class="mono">a = 3.5（试算输入） · b = —（未使用）</span></div>
+        <div class="fr-line"><span class="lbl">引用实值</span><span class="mono">@@demo_pmml_base_feature = 3.5（基础特征真实取数 · 视图 demo_pmml）</span></div>
+        <div class="fr-line"><span class="lbl">表达式</span><span class="mono">int a = @@demo_pmml_base_feature; return a * 100;</span></div>
+        <div class="fr-line"><span class="lbl">回填</span>出参 result → <span class="mono"><b>feat.dreiver_feature = 350.0</b></span></div>
+      </div>
+
+      <p style="font-size:12.5px;color:var(--ink-2);margin:16px 0 0;">兜底形态（引擎不可用时）：</p>
+      <div class="fr-block" style="border-color:#F0C9A0;">
+        <div class="fr-head">
+          <span class="code">user_overdue_level</span>
+          <span class="mini-tag">Python 引擎</span>
+          <span class="mini-tag" style="color:#B45309;border-color:#F0C9A0;">兜底</span>
+        </div>
+        <div class="fr-warn" style="margin-top:4px;">⚠ 引擎执行失败（python-runner 未启动：Connection refused）→ 已回退内置派生：overdue_cnt = 3 → <b>feat.user_overdue_level = H</b>（与现状同值，仅来源变化）。</div>
+      </div>
+    </div>
+
+    <!-- 卡 C：最终输出 -->
+    <div class="card">
+      <div class="card-title">
+        <span>最终输出</span>
+        <span class="sub">结论 · 原因码 · 执行版本 · 报文</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+        <span class="badge badge-reject" style="font-size:15px;height:30px;padding:0 16px;">REJECT</span>
+        <span style="font-size:13px;color:var(--ink-2);">按切流判定命中 <b class="mono" style="color:var(--decision);">v12</b>（推演态）· 未命中编排条件，走默认规则集</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px 12px;font-size:12.5px;">
+        <div class="prop-row" style="border:none;padding:2px 0;"><div class="k">原因码</div><div class="v mono">RISK_OVERDUE_HIGH</div></div>
+        <div class="prop-row" style="border:none;padding:2px 0;"><div class="k">命中规则</div><div class="v mono">R007 逾期准入</div></div>
+        <div class="prop-row" style="border:none;padding:2px 0;"><div class="k">结论来源</div><div class="v mono">默认规则集（未命中编排条件）</div></div>
+        <div class="prop-row" style="border:none;padding:2px 0;"><div class="k">执行版本</div><div class="v mono">v12（自动判定）</div></div>
+        <div class="prop-row" style="border:none;padding:2px 0;"><div class="k">总耗时</div><div class="v mono">74.9ms</div></div>
+        <div class="prop-row" style="border:none;padding:2px 0;"><div class="k">特征真实计算</div><div class="v mono">1 / 1</div></div>
+        <div class="prop-row" style="border:none;padding:2px 0;"><div class="k">traceId</div><div class="v mono">tr_ab12cd34</div></div>
+        <div class="prop-row" style="border:none;padding:2px 0;"><div class="k">降级</div><div class="v mono">0 次</div></div>
+        <div class="prop-row" style="border:none;padding:2px 0;"><div class="k">Bundle</div><div class="v mono">—</div></div>
+      </div>
+      <div class="code-block" style="margin-top:12px;">{
+  "strategyCode": "loan_apply", "version": "v12", "versionId": 2,
+  "execSource": "DEFAULT_RULES_NO_MATCH", "hitNode": null,
+  "conclusion": "REJECT", "reasonCode": "RISK_OVERDUE_HIGH",
+  "traceId": "tr_ab12cd34", "elapsedMs": 74.9, "degraded": false
+}</div>
+    </div>
+
+  </div>
+  <p class="mk-caption">卡片顺序 = 判定（流量判定）→ 运行（逐节点 / 特征）→ 结果（最终输出），变量快照卡保留在最后（<span class="mono">feat.*</span> 分组标注「真实引擎值 / 内置派生兜底」）。三卡均挂在现有右栏（<span class="mono">1.4fr</span>），左栏「试算输入 / 回归用例集」不动。</p>
+</div>
+
+<!-- ===================== 四、解析入参一致性 ===================== -->
+<div class="mk-sec">
+  <div class="mk-sec-h"><b>四、解析入参与自动模式一致性</b><span class="mk-badge">小改</span></div>
+  <div class="stage">
+    <div class="card">
+      <div class="card-title"><span>试算输入</span><span class="sub">POST /trial/resolve-inputs</span></div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <span style="font-size:12.5px;color:var(--ink-2);">试算对象</span>
+        <span class="tag tag-gray" style="background:rgba(194,65,12,.10);color:var(--decision);border:none;">loan_apply · 自动（按切流判定）</span>
+      </div>
+      <div style="font-size:12px;line-height:1.8;margin-top:8px;">
+        <span style="color:var(--pass);font-weight:600;">✓ 解析完成</span>
+        <span style="color:var(--ink-2);">：策略入参 4 个（user_id、apply_amount、channel、risk_score）· 引用特征 1 个（user_overdue_level → 0 个入参）</span>
+      </div>
+      <div style="font-size:12px;color:var(--ink-2);line-height:1.8;margin-top:2px;">
+        ⓘ 自动模式：按切流判定本笔将执行 <b class="mono" style="color:var(--decision);">v11</b>（哈希槽位 63），已按该版本引用解析入参。
+      </div>
+    </div>
+  </div>
+  <p class="mk-caption">不做这步的话会出现「输入框键集 = 默认版本，执行 = 命中版本」的错位；做法：<span class="mono">resolve-inputs</span> 请求体带当前输入框 JSON，后端走同一判定算法。</p>
+</div>
+
+<!-- ===================== 五、数据来源与算法口径 ===================== -->
+<div class="mk-sec">
+  <div class="mk-sec-h"><b>五、数据来源与算法口径（零 DDL · 零新端点）</b></div>
+  <div class="mk-context" style="margin-bottom:12px;">
+    <b>判定数据</b> = <span class="mono">strategy_version</span>（状态 / 份额）+ <span class="mono">grayscale_rule</span>（mode / traffic_pct / whitelist_users / channel / user_tag / status）——与「切流配置」弹窗同一份数据，修改切流立即影响试算判定；<br/>
+    <b>特征计算</b> = 复用 <span class="mono">FeatureService.trial</span>（四引擎真实执行）+ <span class="mono">resolvedInputsOf</span>（入参解析），出参按「引用名口径」回填 <span class="mono">feat.*</span>；引擎失败才回退内置派生并挂 ⚠；<br/>
+    <b>接口</b> = <span class="mono">POST /trial/execute</span> 未带 version_id 即自动判定，响应新增 <span class="mono">routing / featureRuns / nodeDetails</span>；无新表、无新端点；<br/>
+    <b>复现口径</b> = <span class="mono">md5(user_id) 前 8 位 % 100</span> 定槽位：U100823 → 63 → v11（70%）· U100003 → 21 → v13（30%）。
+  </div>
+  <div class="mk-note">
+    <b>已确认决策（2026-10-14 送审通过）：</b><ul style="margin:6px 0 0;padding-left:18px;">
+      <li><b>D1 版本选择</b>：保留下拉 + 新增「自动 · 按切流判定」为默认（本稿右侧即为该形态）——手动选具体版本保留，用于定点调试 / 回放。</li>
+      <li><b>D2 随机切流试算行为</b>：RANDOM / PERCENT 统一按 <span class="mono">user_id</span> 哈希固定（可复现，用例回归不抖动；生产 RANDOM 的真随机语义不受影响）。</li>
+    </ul>
+  </div>
+</div>
+
+</body>
+</html>

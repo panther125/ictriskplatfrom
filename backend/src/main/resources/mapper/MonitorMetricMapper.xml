@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.riskstrategy.mapper.MonitorMetricMapper">
+
+    <select id="selectTop8BySnapshotAtDesc" resultType="MonitorMetric">
+        SELECT id, metric_key, metric_name, `value`, unit, comparison, threshold, state, snapshot_at
+        FROM monitor_metric
+        ORDER BY snapshot_at DESC
+        LIMIT 8
+    </select>
+
+</mapper>

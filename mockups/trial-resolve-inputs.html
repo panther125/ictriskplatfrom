@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>试算中心 · 试算输入「解析入参」— 改动稿 v1</title>
+<link rel="stylesheet" href="../frontend/src/styles/design.css" />
+<style>
+  body { padding: 28px 36px 72px; }
+  .mk-title { font-size: 20px; font-weight: 700; color: var(--ink-1); }
+  .mk-sub { color: var(--ink-3); font-size: 13px; margin: 4px 0 26px; }
+  .mk-sec { margin-bottom: 40px; }
+  .mk-sec-h { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .mk-sec-h b { font-size: 15px; color: var(--ink-1); }
+  .mk-badge {
+    display: inline-flex; align-items: center; height: 22px; padding: 0 10px;
+    border-radius: 999px; background: rgba(232,116,15,.12); color: var(--feature);
+    font-size: 12px; font-weight: 600; white-space: nowrap;
+  }
+  .mk-context {
+    background: #FFF9F2; border: 1px solid var(--stroke-weak); border-radius: 10px;
+    padding: 10px 14px; font-size: 12.5px; color: var(--ink-2); line-height: 1.9; margin-bottom: 16px;
+  }
+  .mk-context b { color: var(--ink-1); }
+  .mk-newbtn {
+    border-color: #E8740F !important; color: #C2410C !important; font-weight: 600;
+    position: relative;
+  }
+  .mk-newbtn::after {
+    content: attr(data-tag); position: absolute; top: -9px; right: -6px;
+    background: #E8740F; color: #fff; font-size: 10px; font-weight: 600;
+    padding: 0 6px; border-radius: 999px; line-height: 15px; white-space: nowrap;
+  }
+  .stage {
+    border: 1px solid var(--stroke-weak); border-radius: 12px;
+    overflow: hidden; background: var(--bg-workspace); padding: 20px;
+  }
+  .stage .card { max-width: 560px; }
+  .stage .card-title .sub { margin-left: auto; }
+  .mk-note-line {
+    display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline;
+    font-size: 12px; color: var(--ink-2); margin-top: 8px; line-height: 1.8;
+  }
+  .mk-note-line .ok { color: var(--pass2, #15803D); font-weight: 600; }
+  .mk-note-line .warn { color: #B45309; font-weight: 600; }
+  .mk-src {
+    margin-top: 6px; font-size: 12px; color: var(--ink-3); line-height: 1.9;
+    border-left: 2px solid var(--stroke-weak); padding-left: 10px;
+  }
+  .mk-src .mono { color: var(--ink-2); }
+  .mk-caption { font-size: 12px; color: var(--ink-3); margin: 8px 0 0; }
+</style>
+</head>
+<body>
+
+<div class="mk-title">试算中心 · 试算输入「解析入参」— 改动稿 v1</div>
+<div class="mk-sub">挂真实 design.css。仅展示「试算输入」卡片，其余页面不变。</div>
+
+<div class="mk-context">
+  <b>改动点：</b><br/>
+  ① 预设按钮行行首新增「解析入参」按钮（描边高亮 · 新），点击按<b>当前试算对象（策略 + 版本）</b>自动解析入参；<br/>
+  ② 解析 = <b>策略自定义入参（param.* 引用并集）</b> + <b>引用到的特征的对应入参（feat.* → 特征入参清单，含 @@ 链与「入参定义」调整）</b>；<br/>
+  ③ 回填语义（推荐 A）：<b>以解析结果重建键集，同名键沿用输入框现值，新键补占位值，无关旧键移除</b>——按钮输出即「该策略真正需要的入参清单」；<br/>
+  ④ 按钮行下方新增解析结果提示行（数量 / 键名 / 来源 / 告警），不弹窗。
+</div>
+
+<!-- ===================== 初始态 ===================== -->
+<div class="mk-sec">
+  <div class="mk-sec-h"><b>一、初始态</b><span class="mk-badge">新增：解析入参按钮</span></div>
+  <div class="stage">
+    <div class="card">
+      <div class="card-title"><span>试算输入</span><span class="sub">POST /trial/execute</span></div>
+      <textarea class="textarea" style="min-height: 160px">{
+  "user_id": "U100823",
+  "apply_amount": 50000,
+  "channel": "APP",
+  "user_level": "B",
+  "overdue_cnt": 3,
+  "risk_score": 742,
+  "debug": true
+}</textarea>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap;">
+        <span style="font-size:12.5px;color:var(--ink-2);">试算对象</span>
+        <span class="tag tag-gray" style="background:rgba(194,65,12,.10);color:var(--decision);border:none;">loan_apply · v12 · 流量 10%</span>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
+        <button class="btn sm mk-newbtn" data-tag="新">解析入参</button>
+        <button class="btn sm">命中缓存</button>
+        <button class="btn sm">降级场景</button>
+        <button class="btn sm">字段缺失</button>
+        <button class="btn sm">上次示例</button>
+      </div>
+      <div style="font-size:12px;color:var(--ink-3);margin-top:8px;line-height:1.7;">
+        该版本登记了 8 个决策节点，试算按节点条件<b>真实求值</b>（按优先级短路），命中哪个节点就用它的结论与原因码。<br/>
+        特征侧派生：overdue_cnt → feat.user_overdue_level（H/M/L）、risk_score → feat.risk_level（HIGH/MID/LOW）。debug=true 时强制采样并记录完整 trace。
+      </div>
+      <div style="display:flex;gap:8px;margin-top:10px;">
+        <button class="btn primary">试算 →</button>
+        <button class="btn" disabled>保存为用例</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== 点击解析后（loan_apply v12 实际数据） ===================== -->
+<div class="mk-sec">
+  <div class="mk-sec-h"><b>二、点击「解析入参」后（loan_apply v12 · 真实数据推演）</b><span class="mk-badge">按钮输出 = 需要的入参清单</span></div>
+  <div class="stage">
+    <div class="card">
+      <div class="card-title"><span>试算输入</span><span class="sub">POST /trial/execute</span></div>
+      <textarea class="textarea" style="min-height: 130px">{
+  "user_id": "U100823",
+  "apply_amount": 50000,
+  "channel": "APP",
+  "risk_score": 742
+}</textarea>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap;">
+        <span style="font-size:12.5px;color:var(--ink-2);">试算对象</span>
+        <span class="tag tag-gray" style="background:rgba(194,65,12,.10);color:var(--decision);border:none;">loan_apply · v12 · 流量 10%</span>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
+        <button class="btn sm mk-newbtn" data-tag="新">解析入参</button>
+        <button class="btn sm">命中缓存</button>
+        <button class="btn sm">降级场景</button>
+        <button class="btn sm">字段缺失</button>
+        <button class="btn sm">上次示例</button>
+      </div>
+      <div class="mk-note-line">
+        <span class="ok">✓ 解析完成</span>
+        <span>策略入参 4 个：<span class="mono" style="font-size:12px;">user_id、apply_amount、channel、risk_score</span></span>
+        <span>·</span>
+        <span>引用特征 1 个：<span class="mono" style="font-size:12px;">user_overdue_level（逾期等级）→ 0 个入参</span></span>
+      </div>
+      <div class="mk-src">
+        入参来源（节点引用清单）：<span class="mono">user_id / apply_amount / channel ← n_001 开始 START</span>；
+        <span class="mono">channel / risk_score ← n_006 交叉决策树</span>；
+        <span class="mono">特征 user_overdue_level ← n_003 特征·逾期等级、n_005 决策·逾期准入</span>
+      </div>
+      <div style="font-size:12px;color:var(--ink-3);margin-top:8px;line-height:1.7;">
+        被移除的旧键（user_level / overdue_cnt / debug）可用「上次示例」恢复；overdue_cnt 未填时试算按内置默认值派生。
+      </div>
+      <div style="display:flex;gap:8px;margin-top:10px;">
+        <button class="btn primary">试算 →</button>
+        <button class="btn">保存为用例</button>
+      </div>
+    </div>
+  </div>
+  <p class="mk-caption">说明：同名键（user_id / apply_amount / channel / risk_score）沿用输入框现值；示例中 risk_score=742 即原值保留。</p>
+</div>
+
+<!-- ===================== 特征带出入参 / 告警示例 ===================== -->
+<div class="mk-sec">
+  <div class="mk-sec-h"><b>三、提示行的其它形态（示例）</b><span class="mk-badge">特征带出入参 · 未编排 · 告警</span></div>
+  <div class="stage">
+
+    <p style="font-size:12.5px;color:var(--ink-2);margin:0 0 10px;">a) 引用特征带出入参（示意：临时测试版本引用 <span class="mono">feat.dreiver_feature</span>）：</p>
+    <div class="mk-note-line" style="margin-top:0;">
+      <span class="ok">✓ 解析完成</span>
+      <span>策略入参 2 个：<span class="mono" style="font-size:12px;">customerId、amount</span></span>
+      <span>·</span>
+      <span>引用特征 1 个：<span class="mono" style="font-size:12px;">dreiver_feature → 2 个入参：a、b</span></span>
+    </div>
+    <div class="mk-src">
+      <span class="mono">a、b · DECIMAL · 必填 ← 基础特征 demo_pmml_base_feature → 视图 demo_pmml 入参</span>
+    </div>
+
+    <p style="font-size:12.5px;color:var(--ink-2);margin:22px 0 10px;">b) 所选版本未编排决策图（如 loan_apply v11）：</p>
+    <div class="mk-note-line" style="margin-top:0;">
+      <span class="ok">✓ 解析完成</span>
+      <span>未解析到变量引用</span>
+    </div>
+    <div class="mk-note-line" style="margin-top:2px;">
+      <span class="warn">⚠</span>
+      <span>该版本未编排决策图，试算会走默认规则集（overdue_cnt ≥ 3 → REJECT · risk_score ≥ 800 → REJECT · 其余 REVIEW）</span>
+    </div>
+
+    <p style="font-size:12.5px;color:var(--ink-2);margin:22px 0 10px;">c) 引用特征存在异常（不存在 / 已下线）：</p>
+    <div class="mk-note-line" style="margin-top:0;">
+      <span class="warn">⚠</span>
+      <span>引用特征「user_overdue_cnt」已下线，试算时不会计算它（引用节点：n_00x 特征·逾期次数）</span>
+    </div>
+    <div class="mk-note-line" style="margin-top:2px;">
+      <span class="warn">⚠</span>
+      <span>引用特征「xxx」在特征表中不存在（引用节点：n_00y 决策·评分），请回编排页检查</span>
+    </div>
+
+  </div>
+</div>
+
+<!-- ===================== 数据来源 ===================== -->
+<div class="mk-sec">
+  <div class="mk-sec-h"><b>四、解析数据来源（零 DDL · 全部复用既有数据）</b></div>
+  <div class="mk-context" style="margin-bottom:0;">
+    <b>① 策略自定义入参</b> = 所选版本决策图节点的引用变量清单 <span class="mono">decision_node.ref_vars_json</span> 里 <span class="mono">param.*</span> 并集（表达式文本里的 <span class="mono">c.*</span> 兼容入内）；<br/>
+    <b>② 引用特征 + 其入参</b> = 同一清单里 <span class="mono">feat.*</span>（兼容 <span class="mono">f.*</span>）→ 按编码查特征表 → 复用既有 <span class="mono">FeatureService.resolvedInputsOf</span>（自动展开 @@ 链、<span class="mono">:param.</span>，叠加「入参定义」的启停 / 类型 / 必填 / 默认值 / 手工补充行）；<br/>
+    <b>不做</b>：<span class="mono">view.*</span> 视图入参本次不进模板（后续可扩展）；接口只读不写库、不触发试算。
+  </div>
+</div>
+
+</body>
+</html>

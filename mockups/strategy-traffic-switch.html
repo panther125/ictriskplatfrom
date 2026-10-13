@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>策略管理 · 决策级「切流」— 改动稿 v2</title>
+<link rel="stylesheet" href="../frontend/src/styles/design.css" />
+<style>
+  body { padding: 28px 36px 72px; }
+  .mk-title { font-size: 20px; font-weight: 700; color: var(--ink-1); }
+  .mk-sub { color: var(--ink-3); font-size: 13px; margin: 4px 0 26px; }
+  .mk-sec { margin-bottom: 40px; }
+  .mk-sec-h { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .mk-sec-h b { font-size: 15px; color: var(--ink-1); }
+  .mk-badge {
+    display: inline-flex; align-items: center; height: 22px; padding: 0 10px;
+    border-radius: 999px; background: rgba(232,116,15,.12); color: var(--feature);
+    font-size: 12px; font-weight: 600; white-space: nowrap;
+  }
+  .mk-note {
+    border: 1px dashed #E8740F; background: #FFF7EF; border-radius: 10px;
+    padding: 10px 14px; font-size: 12.5px; color: #8A4A0F; line-height: 1.9;
+  }
+  .mk-note b { color: #C2410C; }
+  .mk-note ul { margin: 0; padding-left: 18px; }
+  .mk-newbtn {
+    border-color: #E8740F !important; color: #C2410C !important; font-weight: 600;
+    position: relative;
+  }
+  .mk-newbtn::after {
+    content: attr(data-tag); position: absolute; top: -9px; right: -6px;
+    background: #E8740F; color: #fff; font-size: 10px; font-weight: 600;
+    padding: 0 6px; border-radius: 999px; line-height: 15px; white-space: nowrap;
+  }
+  .stage {
+    position: relative; border: 1px solid var(--stroke-weak); border-radius: 12px;
+    overflow: hidden; background: var(--bg-workspace); min-height: 790px;
+  }
+  .stage .modal-mask { position: absolute; }
+  .stage .modal { max-height: none; }  /* 展板不设视口上限，完整展示弹窗全貌 */
+  .mk-context {
+    background: #FFF9F2; border: 1px solid var(--stroke-weak); border-radius: 10px;
+    padding: 10px 14px; font-size: 12.5px; color: var(--ink-2); line-height: 1.9; margin-bottom: 16px;
+  }
+  /* 份额表行样式微调 */
+  .stage .table { font-size: 12.5px; }
+  .stage .table thead th { padding: 6px 10px; }
+  .stage .table tbody td { padding: 8px 10px; height: auto; }
+  .stage .table tbody tr.is-off td { opacity: .5; }
+  .stage .table tbody tr.is-off { background: #FAF7F2; }
+  .stage .table tbody tr.is-off:hover { background: #FAF7F2; }
+  .mk-num { width: 84px; height: 32px; text-align: right; padding: 0 10px; }
+  /* 合计指示 */
+  .mk-sum {
+    display: flex; justify-content: flex-end; align-items: center; gap: 8px;
+    margin-top: 10px; font-size: 12.5px;
+  }
+  .mk-sum .pill {
+    display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 12px;
+    border-radius: 999px; font-weight: 600; font-variant-numeric: tabular-nums;
+  }
+  .mk-sum .pill.ok { color: var(--pass); background: rgba(26,127,90,.10); }
+  .mk-sum .pill.err { color: var(--reject); background: rgba(190,58,43,.09); }
+  .mk-two { display: flex; flex-direction: column; gap: 20px; }
+  .mk-two .stage { min-height: 620px; }
+  .mk-two .modal { width: 600px; }
+</style>
+</head>
+<body>
+
+<div class="mk-title">策略管理 · 已上线策略「切流」入口（决策级多版本分流）</div>
+<div class="mk-sub">改动稿 v2 · 切流对象 = 一个决策，切的是决策内的各版本（例：随机切流 50% → v0.0.1、50% → v0.0.3）· 样式挂载真实 frontend/src/styles/design.css</div>
+
+<!-- ============ 改动 1：列表行操作 ============ -->
+<div class="mk-sec">
+  <div class="mk-sec-h"><span class="mk-badge">改动 1</span><b>策略列表：仅「已发布」策略新增「切流」按钮；线上版本 / 流量列支持多版本</b></div>
+
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:12px">
+    <div>
+      <h1>策略管理</h1>
+      <div class="sub" style="color:var(--ink-3);font-size:12.5px">决策中心 / 策略管理 · 策略只有「草稿 / 已发布」两种状态，版本有「草稿 / 已发布 / 已下线」三种</div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn">刷新</button>
+      <button class="btn primary">编排当前策略</button>
+    </div>
+  </div>
+
+  <div class="card" style="padding:0;overflow:hidden">
+    <div class="card-head">
+      <b>策略列表 · 3 个</b>
+      <span class="sub" style="font-size:12.5px;color:var(--ink-3)">点击任意一行查看该策略的版本与流量</span>
+    </div>
+    <div class="table-wrap">
+      <table class="table" style="min-width:960px">
+        <thead>
+          <tr>
+            <th>策略名称 / 编码</th><th>分类</th><th>版本</th><th>线上版本</th><th>流量</th>
+            <th style="width:96px">状态</th><th style="width:210px">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><div style="font-weight:500">还款能力准入策略</div><div class="code-cell mono" style="margin-top:2px;color:var(--ink-3)">loan_apply</div></td>
+            <td style="font-size:12.5px;color:var(--ink-2)">决策中心</td>
+            <td class="mono">3 个</td>
+            <td class="mono">v11、v13</td>
+            <td class="mono">70% / 30%</td>
+            <td><span class="tag tag-published">已发布</span></td>
+            <td>
+              <div class="table-actions">
+                <button class="btn sm">版本</button>
+                <button class="btn sm">编排</button>
+                <button class="btn sm mk-newbtn" data-tag="新增">切流</button>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td><div style="font-weight:500">信用检查策略</div><div class="code-cell mono" style="margin-top:2px;color:var(--ink-3)">credit_check</div></td>
+            <td style="font-size:12.5px;color:var(--ink-2)">决策中心</td>
+            <td class="mono">1 个</td>
+            <td class="mono">v8</td>
+            <td class="mono">100%</td>
+            <td><span class="tag tag-published">已发布</span></td>
+            <td>
+              <div class="table-actions">
+                <button class="btn sm">版本</button>
+                <button class="btn sm">编排</button>
+                <button class="btn sm mk-newbtn" data-tag="新增">切流</button>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td><div style="font-weight:500">反欺诈规则集</div><div class="code-cell mono" style="margin-top:2px;color:var(--ink-3)">anti_fraud</div></td>
+            <td style="font-size:12.5px;color:var(--ink-2)">决策中心</td>
+            <td class="mono">1 个</td>
+            <td class="mono"><span style="color:var(--ink-3)">未上线</span></td>
+            <td class="mono">—</td>
+            <td><span class="tag tag-draft">草稿</span></td>
+            <td>
+              <div class="table-actions">
+                <button class="btn sm">版本</button>
+                <button class="btn sm">编排</button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="mk-note" style="margin-top:12px">
+    <ul>
+      <li>「切流」按钮追加在现有「版本 / 编排」之后，<b>仅 status = 已发布 的策略显示</b>；草稿策略不显示（无在线版本可切流）。</li>
+      <li>「线上版本 / 流量」两列改为<b>多版本拼接</b>：`v11、v13` ↔ `70% / 30%`（同一顺序一一对应）；单版本与原展示一致。</li>
+      <li>橙色高亮与角标仅为标示改动点；<b>实现时与现有按钮同款（btn sm 默认样式）</b>，不新增强调色。</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ============ 改动 2：切流配置弹窗（主态） ============ -->
+<div class="mk-sec">
+  <div class="mk-sec-h"><span class="mk-badge">改动 2</span><b>点击「切流」→ 决策级切流配置弹窗：给该决策下的版本分配流量份额，合计 = 100%</b></div>
+
+  <div class="stage">
+    <div class="modal-mask">
+      <div class="modal" style="width:660px;max-width:100%">
+        <div class="modal-head">
+          <div>
+            <div class="t">切流配置 · 还款能力准入策略</div>
+            <div class="s">PUT /api/strategies/1/traffic</div>
+          </div>
+          <button class="modal-close" aria-label="关闭">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="mk-context">
+            该决策下有 <b>3 个版本</b>。「已发布 / 已下线」的版本可分配流量，合计需等于 <b style="color:var(--decision)">100%</b>；
+            份额填 0 的在线版本保存后自动下线，已下线版本填 &gt;0 份额即重新上线。
+          </div>
+
+          <div class="field">
+            <label>切流方式</label>
+            <div class="seg" style="display:flex;width:100%">
+              <button style="flex:1">随机切流</button>
+              <button class="active" style="flex:1">百分比切流</button>
+              <button style="flex:1">白名单切流</button>
+            </div>
+            <div class="hint" style="margin-top:8px">按 <span class="mono">hash(bizKey) % 100</span> 落在哪个份额区间分配：同一用户固定命中同一版本，不抖动。</div>
+          </div>
+
+          <div class="field" style="margin-bottom:8px">
+            <label>版本份额<span class="req">*</span></label>
+          </div>
+          <table class="table">
+            <thead>
+              <tr>
+                <th>版本</th>
+                <th style="width:96px">状态</th>
+                <th>份额区间</th>
+                <th style="width:118px;text-align:right">放量比例 %</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><b class="mono" style="font-size:13px">v13</b> <span class="hint mono">rev 41</span></td>
+                <td><span class="tag tag-published">已发布</span></td>
+                <td class="mono hint">hash 0 – 29</td>
+                <td style="text-align:right"><input class="input mono mk-num" type="number" value="30" /></td>
+              </tr>
+              <tr>
+                <td><b class="mono" style="font-size:13px">v11</b> <span class="hint mono">rev 36</span></td>
+                <td><span class="tag tag-published">已发布</span></td>
+                <td class="mono hint">hash 30 – 99</td>
+                <td style="text-align:right"><input class="input mono mk-num" type="number" value="70" /></td>
+              </tr>
+              <tr class="is-off">
+                <td><b class="mono" style="font-size:13px">v12</b> <span class="hint mono">rev 38</span></td>
+                <td><span class="tag tag-draft">草稿</span></td>
+                <td class="hint" colspan="2" style="text-align:right">未发布，不可参与切流 —— 发布后回到本弹窗分配流量</td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="mk-sum">
+            <span class="hint">当前 2 个版本承接流量（上限 5 个）</span>
+            <span class="pill ok">✓ 合计 100%</span>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px">
+            <div class="field" style="margin-bottom:0">
+              <label>限定渠道</label>
+              <input class="input" placeholder="不限则留空，如 APP_IOS" />
+            </div>
+            <div class="field" style="margin-bottom:0">
+              <label>限定客群标签</label>
+              <input class="input" placeholder="不限则留空，如 VIP" />
+            </div>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn">取消</button>
+          <button class="btn primary">保存切流配置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mk-note" style="margin-top:12px">
+    <ul>
+      <li>弹窗以<b>决策为对象</b>：一次配置该决策下多个版本的流量份额（你的例子 = 随机切流 50% → 老版本、50% → 新版本）。</li>
+      <li><b>可参与</b>：已发布 / 已下线版本；<b>不可参与</b>：草稿 / 待审版本（灰显置底，提示「发布后可参与」）。</li>
+      <li><b>百分比切流</b>按行序累积份额区间并直接展示（`hash 0–29` / `30–99`），同 bizKey 稳定落同一版本；<b>随机切流</b>每笔请求按份额随机分配。</li>
+      <li><b>合计必须 = 100%</b>，否则保存按钮禁用并红字提示；服务端二次校验（整数、0–100、合计）。</li>
+      <li>已下线版本填 &gt;0 份额 = <b>重新上线（等价回滚到该版本）</b>；在线版本填 0 = 保存后自动下线，从份额表移除。这两个动作都记审计。</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ============ 改动 3：两种变体 ============ -->
+<div class="mk-sec">
+  <div class="mk-sec-h"><span class="mk-badge">改动 3</span><b>变体：合计 ≠ 100 的校验态 · 白名单切流模式</b></div>
+
+  <div class="mk-two">
+    <!-- 变体 A：合计不为 100 -->
+    <div class="stage">
+      <div class="modal-mask">
+        <div class="modal">
+          <div class="modal-head">
+            <div>
+              <div class="t">切流配置 · 还款能力准入策略</div>
+              <div class="s">PUT /api/strategies/1/traffic</div>
+            </div>
+            <button class="modal-close" aria-label="关闭">×</button>
+          </div>
+          <div class="modal-body">
+            <div class="field">
+              <label>切流方式</label>
+              <div class="seg" style="display:flex;width:100%">
+                <button style="flex:1">随机切流</button>
+                <button class="active" style="flex:1">百分比切流</button>
+                <button style="flex:1">白名单切流</button>
+              </div>
+            </div>
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>版本</th>
+                  <th style="width:96px">状态</th>
+                  <th>份额区间</th>
+                  <th style="width:118px;text-align:right">放量比例 %</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><b class="mono" style="font-size:13px">v13</b> <span class="hint mono">rev 41</span></td>
+                  <td><span class="tag tag-published">已发布</span></td>
+                  <td class="mono hint">hash 0 – 59</td>
+                  <td style="text-align:right"><input class="input mono mk-num" type="number" value="60" /></td>
+                </tr>
+                <tr>
+                  <td><b class="mono" style="font-size:13px">v11</b> <span class="hint mono">rev 36</span></td>
+                  <td><span class="tag tag-published">已发布</span></td>
+                  <td class="mono hint">hash 60 – 89</td>
+                  <td style="text-align:right"><input class="input mono mk-num" type="number" value="30" /></td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="mk-sum">
+              <span class="pill err">✕ 合计 90%，还差 10%</span>
+            </div>
+            <div class="field-err" style="margin-top:8px"><span>!</span><span>各版本份额之和必须等于 100% 才能保存。</span></div>
+          </div>
+          <div class="modal-foot">
+            <button class="btn">取消</button>
+            <button class="btn primary" disabled>保存切流配置</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 变体 B：白名单切流 -->
+    <div class="stage">
+      <div class="modal-mask">
+        <div class="modal">
+          <div class="modal-head">
+            <div>
+              <div class="t">切流配置 · 还款能力准入策略</div>
+              <div class="s">PUT /api/strategies/1/traffic</div>
+            </div>
+            <button class="modal-close" aria-label="关闭">×</button>
+          </div>
+          <div class="modal-body">
+            <div class="field">
+              <label>切流方式</label>
+              <div class="seg" style="display:flex;width:100%">
+                <button style="flex:1">随机切流</button>
+                <button style="flex:1">百分比切流</button>
+                <button class="active" style="flex:1">白名单切流</button>
+              </div>
+              <div class="hint" style="margin-top:8px">白名单用户固定命中对应版本；未命中白名单的流量全部走「兜底版本」（单选）。</div>
+            </div>
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>版本</th>
+                  <th style="width:96px">状态</th>
+                  <th style="width:118px;text-align:right">白名单人数</th>
+                  <th style="width:64px;text-align:center">兜底</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><b class="mono" style="font-size:13px">v13</b> <span class="hint mono">rev 41</span></td>
+                  <td><span class="tag tag-published">已发布</span></td>
+                  <td style="text-align:right"><input class="input mono mk-num" type="number" value="200" /></td>
+                  <td style="text-align:center"><input type="radio" name="fallbackB" style="accent-color:var(--decision)" /></td>
+                </tr>
+                <tr>
+                  <td><b class="mono" style="font-size:13px">v11</b> <span class="hint mono">rev 36</span></td>
+                  <td><span class="tag tag-published">已发布</span></td>
+                  <td style="text-align:right"><input class="input mono mk-num" type="number" value="0" /></td>
+                  <td style="text-align:center"><input type="radio" name="fallbackB" checked style="accent-color:var(--decision)" /></td>
+                </tr>
+                <tr class="is-off">
+                  <td><b class="mono" style="font-size:13px">v12</b> <span class="hint mono">rev 38</span></td>
+                  <td><span class="tag tag-draft">草稿</span></td>
+                  <td class="hint" colspan="2" style="text-align:right">未发布，不可参与切流</td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="mk-sum">
+              <span class="hint">200 名白名单用户走 v13，其余流量走 v11</span>
+              <span class="pill ok">✓ 兜底：v11</span>
+            </div>
+          </div>
+          <div class="modal-foot">
+            <button class="btn">取消</button>
+            <button class="btn primary">保存切流配置</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mk-note" style="margin-top:12px">
+    <ul>
+      <li><b>合计 ≠ 100 时</b>：实时红字提示差额、保存禁用；区间列同步按当前份额即时计算。</li>
+      <li><b>白名单切流</b>：每个版本配「白名单人数」+ 单选一个「兜底版本」；校验 = 至少 1 个版本白名单人数 &gt;0 且必选兜底。白名单用户的命中规则（userId / 订单号名单）在运行时按名单文件判定，本期只交付配置。</li>
+      <li>白名单模式不展示份额区间列（无份额概念），改用「白名单人数 / 兜底」两列。</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ============ 改动 4：版本卡入口统一 ============ -->
+<div class="mk-sec">
+  <div class="mk-sec-h"><span class="mk-badge">改动 4</span><b>右侧版本卡的「流量分配」入口统一为「切流」，打开同一弹窗</b></div>
+
+  <div class="card" style="max-width:480px">
+    <div class="card-title">
+      <span>版本列表</span>
+      <span class="sub">3 个版本 · 含切流份额</span>
+    </div>
+    <div style="padding:12px 14px;border-radius:10px;border:1px solid var(--stroke-weak);background:#FFFCF8">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <b class="mono" style="font-size:15px">v11</b>
+          <span class="tag tag-published">已发布</span>
+          <span class="tag tag-draft">rev 36</span>
+        </div>
+        <span class="mono" style="color:var(--decision);font-weight:600">70%</span>
+      </div>
+      <div style="margin-top:10px">
+        <div class="progress"><div class="progress-bar" style="width:70%"></div></div>
+        <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:12.5px;color:var(--ink-3)">
+          <span>百分比切流</span>
+          <span>不限渠道与客群</span>
+        </div>
+      </div>
+      <div style="font-size:12.5px;color:var(--ink-3);margin-top:8px">灰度中 70% · 2026-10-12 14:20 · 张三</div>
+      <div class="table-actions" style="margin-top:10px">
+        <button class="btn sm mk-newbtn" data-tag="改名">切流</button>
+        <button class="btn sm danger">下线</button>
+        <button class="btn sm ghost">查看编排</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="mk-note" style="margin-top:12px">
+    <ul>
+      <li>版本卡「流量分配」按钮改名为「切流」，与列表行入口打开<b>同一个决策级弹窗</b>（对应版本行预高亮，方便从单版本反向定位）。</li>
+      <li>版本卡本身保留每版本份额与切流方式的展示（`70%` + 进度条 + 方式文案），不用改动布局。</li>
+      <li>原来「流量分配」是针对单个版本的独立表单，改造后<b>删除单版本表单</b>（避免出现两份口径不一致的配置入口）。</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ============ 边界说明 ============ -->
+<div class="mk-sec">
+  <div class="mk-sec-h"><span class="mk-badge">不做</span><b>本次边界</b></div>
+  <div class="mk-note">
+    <ul>
+      <li>「发布」按钮语义不变（全量切到该版本、其它在线版本下线）；多版本并行完全由「切流」承担。发布前若有并行切流配置，会随全量发布被清掉（确认文案里提示）。</li>
+      <li>不在编排页 / 监控页加切流入口。</li>
+      <li>运行时按份额选版本执行（引擎侧路由接线）不在本次范围，与现状一样先交付配置能力。</li>
+    </ul>
+  </div>
+</div>
+
+</body>
+</html>

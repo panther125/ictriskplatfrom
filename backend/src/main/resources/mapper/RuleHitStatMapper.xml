@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.riskstrategy.mapper.RuleHitStatMapper">
+
+    <select id="selectByPeriodOrderByRank" resultType="RuleHitStat">
+        SELECT id, rule_code, rule_name, hit_count, hit_pct, period, `rank`
+        FROM rule_hit_stat
+        WHERE period = #{period}
+        ORDER BY `rank` ASC
+    </select>
+
+</mapper>

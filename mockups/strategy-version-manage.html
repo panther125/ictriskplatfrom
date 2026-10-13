@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>策略管理 → 「版本管理」独立页 — 改动稿 v1</title>
+<link rel="stylesheet" href="../frontend/src/styles/design.css" />
+<style>
+  body { padding: 28px 36px 72px; }
+  .mk-title { font-size: 20px; font-weight: 700; color: var(--ink-1); }
+  .mk-sub { color: var(--ink-3); font-size: 13px; margin: 4px 0 26px; }
+  .mk-sec { margin-bottom: 40px; }
+  .mk-sec-h { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .mk-sec-h b { font-size: 15px; color: var(--ink-1); }
+  .mk-badge {
+    display: inline-flex; align-items: center; height: 22px; padding: 0 10px;
+    border-radius: 999px; background: rgba(232,116,15,.12); color: var(--feature);
+    font-size: 12px; font-weight: 600; white-space: nowrap;
+  }
+  .mk-note {
+    border: 1px dashed #E8740F; background: #FFF7EF; border-radius: 10px;
+    padding: 10px 14px; font-size: 12.5px; color: #8A4A0F; line-height: 1.9;
+  }
+  .mk-note b { color: #C2410C; }
+  .mk-note ul { margin: 0; padding-left: 18px; }
+  .mk-note del { color: #B3403A; }
+  .mk-newbtn {
+    border-color: #E8740F !important; color: #C2410C !important; font-weight: 600;
+    position: relative;
+  }
+  .mk-newbtn::after {
+    content: attr(data-tag); position: absolute; top: -9px; right: -6px;
+    background: #E8740F; color: #fff; font-size: 10px; font-weight: 600;
+    padding: 0 6px; border-radius: 999px; line-height: 15px; white-space: nowrap;
+  }
+  .stage {
+    position: relative; border: 1px solid var(--stroke-weak); border-radius: 12px;
+    overflow: hidden; background: var(--bg-workspace);
+  }
+  .stage.page { padding: 24px 28px; min-height: auto; }
+  /* 表格内迷你进度条（版本行「流量份额」列） */
+  .vbar { width: 86px; height: 6px; border-radius: 999px; background: #EFE9E1; overflow: hidden; }
+  .vbar > i { display: block; height: 100%; border-radius: 999px; background: var(--decision); }
+</style>
+</head>
+<body>
+
+<div class="mk-title">策略管理 → 「版本管理」独立页（列表式）</div>
+<div class="mk-sub">改动稿 v1 · 「版本」按钮 / 行点击 = 进入版本管理页 · 页顶展示当前策略信息 · 「编排」只保留在版本列表 · 策略管理删除「编排」与右侧面板 · 样式挂载真实 frontend/src/styles/design.css</div>
+
+<!-- ============ 改动 1：策略管理列表 ============ -->
+<div class="mk-sec">
+  <div class="mk-sec-h"><span class="mk-badge">改动 1</span><b>策略管理：「版本」按钮改为进入版本管理页；删除「编排」按钮与右侧面板</b></div>
+
+  <div class="stage page">
+    <div class="page-header" style="margin-bottom:16px">
+      <div>
+        <h1>策略管理</h1>
+        <div class="sub" style="color:var(--ink-3);font-size:12.5px">决策中心 / 策略管理 · 策略只有「草稿 / 已发布」两种状态，版本有「草稿 / 已发布 / 已下线」三种</div>
+      </div>
+      <div class="actions" style="display:flex;gap:8px">
+        <button class="btn">刷新</button>
+      </div>
+    </div>
+
+    <div class="card" style="padding:0;overflow:hidden">
+      <div class="card-head">
+        <b>策略列表 · 3 个</b>
+        <span class="sub" style="font-size:12.5px;color:var(--ink-3)">点击任意一行进入版本管理</span>
+      </div>
+      <div class="table-wrap">
+        <table class="table" style="min-width:920px">
+          <thead>
+            <tr>
+              <th>策略名称 / 编码</th><th>分类</th><th>版本</th><th>线上版本</th><th>流量</th>
+              <th style="width:170px">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="clickable">
+              <td><div style="font-weight:500">还款能力准入策略</div><div class="code-cell mono" style="margin-top:2px;color:var(--ink-3)">loan_apply</div></td>
+              <td style="font-size:12.5px;color:var(--ink-2)">决策中心</td>
+              <td class="mono">2 个</td>
+              <td class="mono">v11</td>
+              <td class="mono">100%</td>
+              <td>
+                <div class="table-actions">
+                  <button class="btn sm mk-newbtn" data-tag="进入页">版本</button>
+                  <button class="btn sm">切流</button>
+                </div>
+              </td>
+            </tr>
+            <tr class="clickable">
+              <td><div style="font-weight:500">信用检查策略</div><div class="code-cell mono" style="margin-top:2px;color:var(--ink-3)">credit_check</div></td>
+              <td style="font-size:12.5px;color:var(--ink-2)">决策中心</td>
+              <td class="mono">1 个</td>
+              <td class="mono">v8</td>
+              <td class="mono">20%</td>
+              <td>
+                <div class="table-actions">
+                  <button class="btn sm">版本</button>
+                  <button class="btn sm">切流</button>
+                </div>
+              </td>
+            </tr>
+            <tr class="clickable">
+              <td><div style="font-weight:500">切流验证示例</div><div class="code-cell mono" style="margin-top:2px;color:var(--ink-3)">traffic_demo</div></td>
+              <td style="font-size:12.5px;color:var(--ink-2)">决策中心</td>
+              <td class="mono">7 个</td>
+              <td class="mono">v0.1</td>
+              <td class="mono">100%</td>
+              <td>
+                <div class="table-actions">
+                  <button class="btn sm">版本</button>
+                  <button class="btn sm">切流</button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="mk-note" style="margin-top:12px">
+    <ul>
+      <li>「版本」按钮点击<b>进入版本管理页</b>（新路由 <span class="mono">/strategy/:id/versions</span>）；<b>行任意处点击同效</b>（原来是选中并在右侧展开面板）。</li>
+      <li>删除行内 <del>「编排」</del> 与页头 <del>「编排当前策略」</del> 按钮 —— <b>编排入口只保留在版本列表</b>（改动 2）。</li>
+      <li>右侧「策略详情 + 版本列表」面板<b>整体移除</b>：策略信息搬到版本管理页顶部，策略列表回到<b>全宽</b>。</li>
+      <li>行内「切流」保留不动（策略级多版本分流入口，本次需求未涉及）。</li>
+      <li>列表卡片说明文案更新为「点击任意一行进入版本管理」。</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ============ 改动 2：版本管理页 ============ -->
+<div class="mk-sec">
+  <div class="mk-sec-h"><span class="mk-badge">改动 2</span><b>版本管理页（新）：页顶策略信息 + 版本列表（表格）· 行操作：编排 / 切流 / 发布 / 下线</b></div>
+
+  <div class="stage page">
+    <!-- 页头 -->
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:16px">
+      <div style="display:flex;align-items:center;gap:12px">
+        <button class="btn sm ghost mk-newbtn" data-tag="新增">← 策略管理</button>
+        <div>
+          <h1 style="margin:0">版本管理</h1>
+          <div class="sub" style="color:var(--ink-3);font-size:12.5px">决策中心 / 策略管理 / 版本管理 · 还款能力准入策略（loan_apply）</div>
+        </div>
+      </div>
+      <button class="btn">刷新</button>
+    </div>
+
+    <!-- 策略信息区（原右侧详情卡搬上来） -->
+    <div class="card" style="margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <b style="font-size:15px">还款能力准入策略</b>
+          <span class="code-cell mono">loan_apply</span>
+        </div>
+        <span class="tag tag-published">已发布</span>
+      </div>
+      <div class="hint" style="margin-top:8px">借款申请还款能力准入决策</div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px;font-size:12.5px">
+        <div><div style="color:var(--ink-3)">业务域</div><div class="mono">决策中心</div></div>
+        <div><div style="color:var(--ink-3)">责任人</div><div class="mono">王敏</div></div>
+        <div><div style="color:var(--ink-3)">版本数</div><div class="mono">2 个</div></div>
+        <div><div style="color:var(--ink-3)">线上版本</div><div class="mono">v11</div></div>
+      </div>
+    </div>
+
+    <!-- 版本列表（表格） -->
+    <div class="card" style="padding:0;overflow:hidden">
+      <div class="card-head">
+        <b>版本列表 · 2 个版本</b>
+        <span class="sub" style="font-size:12.5px;color:var(--ink-3)">一行一个版本 · 含切流份额与行级操作</span>
+      </div>
+      <div class="table-wrap">
+        <table class="table" style="min-width:960px">
+          <thead>
+            <tr>
+              <th style="width:120px">版本</th>
+              <th style="width:90px">状态</th>
+              <th style="width:150px">流量份额</th>
+              <th>切流方式</th>
+              <th>运行状态</th>
+              <th style="width:240px">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><div style="display:flex;align-items:center;gap:8px"><b class="mono" style="font-size:14px">v11</b><span class="tag tag-draft">rev 36</span></div></td>
+              <td><span class="tag tag-published">已发布</span></td>
+              <td><div style="display:flex;align-items:center;gap:8px"><div class="vbar"><i style="width:100%"></i></div><span class="mono" style="font-weight:600;color:var(--decision)">100%</span></div></td>
+              <td><div>百分比切流</div><div style="color:var(--ink-3);font-size:12px">不限渠道与客群</div></td>
+              <td><div>生产运行中</div><div style="color:var(--ink-3);font-size:12px">2026-10-08 10:00 · 王敏</div></td>
+              <td>
+                <div class="table-actions">
+                  <button class="btn sm mk-newbtn" data-tag="本页独有">编排</button>
+                  <button class="btn sm">切流</button>
+                  <button class="btn sm danger">下线</button>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td><div style="display:flex;align-items:center;gap:8px"><b class="mono" style="font-size:14px">v12</b><span class="tag tag-draft">rev 38</span></div></td>
+              <td><span class="tag tag-draft">草稿</span></td>
+              <td><div style="display:flex;align-items:center;gap:8px"><div class="vbar"><i style="width:10%"></i></div><span class="mono" style="font-weight:600;color:var(--decision)">10%</span></div></td>
+              <td><div>百分比切流</div><div style="color:var(--ink-3);font-size:12px">APP_IOS · VIP</div></td>
+              <td><div>候选·待审批</div></td>
+              <td>
+                <div class="table-actions">
+                  <button class="btn sm">编排</button>
+                  <button class="btn sm">切流</button>
+                  <button class="btn sm primary">发布</button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="mk-note" style="margin-top:12px">
+    <ul>
+      <li>页头：「<b>← 策略管理</b>」返回按钮 + 标题「版本管理」+ 面包屑副标题（策略名 / 编码）；右侧「刷新」。</li>
+      <li>顶部<b>策略信息卡</b> = 原右侧「策略详情」卡的内容（名称 / 编码 / 状态 / 描述 / 业务域 / 责任人 / 版本数 / 线上版本），位置搬到页顶、占满全宽。</li>
+      <li>版本以<b>列表（表格）形式</b>展示：版本号 + rev · 状态 · 流量份额（迷你进度条 + 百分比）· 切流方式（含渠道 / 客群）· 运行状态（stateLabel + 发布时间 / 人）。</li>
+      <li>行操作沿用现有版本卡逻辑：<b>编排</b>（任何状态，= 原「查看编排」改名，跳现有编排页 <span class="mono">/strategy/:id/editor</span>）；<b>切流</b>（任何状态，打开同款切流弹窗、该行预高亮）；<b>发布</b>（仅草稿）；<b>下线</b>（仅已发布）。</li>
+      <li>切流配置 / 发布确认两个弹窗从右侧面板<b>迁到本页</b>，弹窗本体与校验不变。</li>
+      <li>排序沿用版本接口返回顺序（现状行为）。数据为当前线上真实值（loan_apply：v11 已发布 100%、v12 草稿 10%）。</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ============ 改动 3：边界态 ============ -->
+<div class="mk-sec">
+  <div class="mk-sec-h"><span class="mk-badge">改动 3</span><b>边界态：空版本列表（保留「去编排」入口）· 加载失败</b></div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+    <div class="stage page" style="min-height:0">
+      <div class="card">
+        <div class="empty">
+          <div class="empty-title">该策略还没有版本</div>
+          <div class="empty-desc">先到编排页新建版本，再回到这里做流量分配与发布。</div>
+          <div class="empty-act"><button class="btn primary mk-newbtn" data-tag="独家入口">去编排</button></div>
+        </div>
+      </div>
+    </div>
+    <div class="stage page" style="min-height:0">
+      <div class="warn-bar" style="margin:0 0 12px">
+        <span><b style="color:var(--reject)">加载失败</b> 版本列表加载失败：Request failed with status code 500</span>
+        <button class="btn sm">重试</button>
+      </div>
+      <div class="card" style="padding:24px 0">
+        <div class="empty"><div class="empty-desc">（重新拉取 <span class="mono">GET /api/strategies/1/versions</span> 后回到正常列表）</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mk-note" style="margin-top:12px">
+    <ul>
+      <li>策略没有任何版本时（列表为空），「编排」按钮没有可挂的行 —— 空态里<b>保留一个「去编排」按钮</b>作为独家入口，否则该策略无处进入编排页。</li>
+      <li>版本接口失败时沿用现有 warn-bar 模式：红字 + 重试；策略信息卡仍可正常展示（数据来自策略列表接口）。</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ============ 不做 ============ -->
+<div class="mk-sec">
+  <div class="mk-sec-h"><span class="mk-badge">不做</span><b>本次边界</b></div>
+  <div class="mk-note">
+    <ul>
+      <li>策略行「切流」保留（策略级多版本分流入口，不在本次需求内）；版本管理页行内「切流」与其打开<b>同一个弹窗</b>。</li>
+      <li>编排语义不变：编辑器仍是「策略级决策草稿版本」，<b>不做「按 strategy_version 打开编排」</b>。</li>
+      <li>不新增后端接口、不改 DDL：策略信息取 <span class="mono">GET /api/strategies</span>、版本取 <span class="mono">GET /api/strategies/{id}/versions</span>；发布 / 下线 / 切流复用现有接口。</li>
+      <li>版本状态机、发布逻辑、流量口径全部不变。</li>
+    </ul>
+  </div>
+</div>
+
+</body>
+</html>

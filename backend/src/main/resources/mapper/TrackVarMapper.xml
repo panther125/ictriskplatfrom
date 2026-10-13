@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.riskstrategy.mapper.TrackVarMapper">
+
+    <select id="selectByTrackIdOrderByStepNo" resultType="TrackVar">
+        SELECT id, track_id, namespace, var_name, var_value, step_no
+        FROM track_var
+        WHERE track_id = #{trackId}
+        ORDER BY step_no ASC
+    </select>
+
+    <insert id="insertBatch">
+        INSERT INTO track_var (track_id, namespace, var_name, var_value, step_no)
+        VALUES
+        <foreach collection="list" item="var" separator=",">
+            (#{var.trackId}, #{var.namespace}, #{var.varName}, #{var.varValue}, #{var.stepNo})
+        </foreach>
+    </insert>
+
+</mapper>
