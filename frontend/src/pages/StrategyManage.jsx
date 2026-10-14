@@ -1,10 +1,22 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client.js';
-import { EmptyState } from '../components/Common.jsx';
+import { EmptyState, Modal, FormField } from '../components/Common.jsx';
 import StrategyTrafficModal from '../components/StrategyTrafficModal.jsx';
 
 const FILTERS = ['全部', '草稿', '已发布'];
+
+/** 策略编码口径（与后端 StrategyService.CODE_PATTERN 一致）：小写字母开头，仅含小写字母 / 数字 / 下划线 */
+const CODE_RE = /^[a-z][a-z0-9_]{2,127}$/;
+
+const EMPTY_FORM = {
+  name: '',
+  code: '',
+  category: '决策中心',
+  owner: '',
+  description: '',
+  inheritFromStrategyId: ''
+};
 
 /* 列表「流量」列：多版本份额拼接；白名单模式展示白名单总人数与兜底版本 */
 const onlineTrafficText = (s) => {
@@ -29,6 +41,21 @@ export default function StrategyManage() {
   // 切流配置弹窗（决策级；从策略行进入时不预高亮任何版本）
   const [splitTarget, setSplitTarget] = useState(null);
   const [splitLoadingId, setSplitLoadingId] = useState(null);
+
+  /* 新增策略弹窗：策略本体 + 可选的初始画布继承源 */
+  const [createOpen, setCreateOpen] = useState(false);
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [touched, setTouched] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createErr, setCreateErr] = useState('');
+
+  const setF = (key, value) => setForm(f => ({ ...f, [key]: value }));
+
+  /** 业务域候选项：取现有策略里出现过的分类，避免自由发挥出五花八门的写法 */
+  const categoryOptions = useMemo(
+    () => Array.from(new Set(list.map(s => s.category).filter(Boolean))),
+    [list]
+  );
 
   const loadList = async () => {
     setLoading(true);
@@ -72,6 +99,52 @@ export default function StrategyManage() {
     }
   };
 
+  /* ---------- 新增策略 ---------- */
+
+  const codeErr = useMemo(() => {
+    const c = form.code.trim();
+    if (!c) return '策略编码不能为空';
+    if (!CODE_RE.test(c)) return '需以小写字母开头，仅含小写字母、数字与下划线（如 loan_apply_v3）';
+    if (list.some(s => String(s.code || '').toLowerCase() === c)) return `编码 ${c} 已被占用`;
+    return '';
+  }, [form.code, list]);
+
+  const nameErr = form.name.trim() ? '' : '策略名称不能为空';
+
+  const openCreate = () => {
+    setForm(EMPTY_FORM);
+    setTouched(false);
+    setCreateErr('');
+    setCreateOpen(true);
+  };
+
+  const doCreate = async () => {
+    setTouched(true);
+    if (nameErr || codeErr) return;
+    setCreating(true);
+    setCreateErr('');
+    const inheritFrom = list.find(s => String(s.id) === String(form.inheritFromStrategyId));
+    try {
+      const created = await api.strategies.create({
+        name: form.name.trim(),
+        code: form.code.trim(),
+        category: form.category.trim() || undefined,
+        owner: form.owner.trim() || undefined,
+        description: form.description.trim() || undefined,
+        inheritFromStrategyId: inheritFrom ? inheritFrom.id : undefined
+      });
+      setCreateOpen(false);
+      // 落地版本管理页：新策略自带 v1 草稿，用户先确认版本结构再进编排
+      navigate(`/strategy/${created.id}/versions`, {
+        state: { created: { name: created.name, code: created.code, inheritedFrom: inheritFrom || null } }
+      });
+    } catch (e) {
+      setCreateErr(e.message || '新增策略失败');
+    } finally {
+      setCreating(false);
+    }
+  };
+
   return (
     <div>
       <div className="page-header">
@@ -81,6 +154,11 @@ export default function StrategyManage() {
         </div>
         <div className="actions">
           <button className="btn" onClick={loadList} disabled={loading}>{loading ? '刷新中…' : '刷新'}</button>
+          <button
+            className="btn primary"
+            onClick={openCreate}
+            title="新建策略：同时初始化 v1 草稿版本，可继承已有策略的画布"
+          >+ 新增策略</button>
         </div>
       </div>
 
@@ -128,11 +206,12 @@ export default function StrategyManage() {
           <span className="sub" style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>点击任意一行进入版本管理</span>
         </div>
         <div className="table-wrap">
-          <table className="table" style={{ minWidth: 880 }}>
+          <table className="table" style={{ minWidth: 980 }}>
             <thead>
               <tr>
                 <th>策略名称 / 编码</th>
                 <th>分类</th>
+                <th>责任人</th>
                 <th>版本</th>
                 <th>线上版本</th>
                 <th>流量</th>
@@ -151,6 +230,7 @@ export default function StrategyManage() {
                     <div className="code-cell" style={{ marginTop: 2 }}>{s.code}</div>
                   </td>
                   <td style={{ fontSize: 12.5, color: 'var(--ink-2)' }}>{s.category || '—'}</td>
+                  <td style={{ fontSize: 12.5, color: 'var(--ink-2)' }}>{s.owner || '—'}</td>
                   <td className="mono">{s.versionCount ?? 0} 个</td>
                   <td className="mono">{(s.onlineVersions || []).map(v => v.versionNo).join('、') || <span style={{ color: 'var(--ink-3)' }}>未上线</span>}</td>
                   <td className="mono">{onlineTrafficText(s)}</td>
@@ -169,7 +249,14 @@ export default function StrategyManage() {
             </tbody>
           </table>
         </div>
-        {!filtered.length && !loading && (
+        {!loading && !list.length && (
+          <EmptyState
+            title="还没有任何策略"
+            desc="新建一个策略开始：平台会同时初始化它的 v1 草稿版本，可直接进入画布编排。"
+            action={<button className="btn primary" onClick={openCreate}>+ 新增策略</button>}
+          />
+        )}
+        {!loading && list.length > 0 && !filtered.length && (
           <EmptyState
             title="没有匹配的策略"
             desc="换个关键词，或把状态筛选切回「全部」。"
@@ -178,6 +265,113 @@ export default function StrategyManage() {
         )}
         {loading && <div className="empty">加载中…</div>}
       </div>
+
+      {/* ---------- 新增策略弹窗 ---------- */}
+      <Modal
+        open={createOpen}
+        title="新增策略"
+        sub="POST /api/strategies"
+        onClose={() => !creating && setCreateOpen(false)}
+        width={600}
+        footer={(
+          <>
+            <button className="btn" disabled={creating} onClick={() => setCreateOpen(false)}>取消</button>
+            <button className="btn primary" disabled={creating} onClick={doCreate}>
+              {creating ? '创建中…' : '创建策略'}
+            </button>
+          </>
+        )}
+      >
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+          <FormField label="策略名称" required error={touched ? nameErr : ''}>
+            <input
+              className="input"
+              value={form.name}
+              onChange={e => setF('name', e.target.value)}
+              placeholder="如：逾期滚动率准入策略"
+              autoFocus
+            />
+          </FormField>
+          <FormField
+            label="策略编码"
+            required
+            error={touched ? codeErr : ''}
+            hint={!touched || !codeErr ? '发布 / 试算 / 留痕都按它定位，创建后不可修改' : ''}
+          >
+            <input
+              className="input mono"
+              value={form.code}
+              onChange={e => setF('code', e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+              placeholder="如：loan_apply_v3"
+              spellCheck={false}
+            />
+          </FormField>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+          <FormField label="业务域">
+            <input
+              className="input"
+              list="strategy-category-options"
+              value={form.category}
+              onChange={e => setF('category', e.target.value)}
+              placeholder="决策中心"
+            />
+            <datalist id="strategy-category-options">
+              {categoryOptions.map(c => <option key={c} value={c} />)}
+            </datalist>
+          </FormField>
+          <FormField label="责任人">
+            <input
+              className="input"
+              value={form.owner}
+              onChange={e => setF('owner', e.target.value)}
+              placeholder="如：王敏"
+            />
+          </FormField>
+        </div>
+
+        <FormField label="策略说明">
+          <textarea
+            className="input"
+            rows={2}
+            style={{ resize: 'vertical', fontFamily: 'inherit' }}
+            value={form.description}
+            onChange={e => setF('description', e.target.value)}
+            placeholder="一句话说明这个策略管什么（可选）"
+          />
+        </FormField>
+
+        <FormField
+          label="初始画布"
+          hint="新建策略一定带一个 v1 草稿版本；选「继承」可完整复制已有策略最新编排的节点、连线、坐标与规则配置。"
+        >
+          <select
+            className="select"
+            value={form.inheritFromStrategyId}
+            onChange={e => setF('inheritFromStrategyId', e.target.value)}
+          >
+            <option value="">空画布（仅种入 开始 / 结束 骨架）</option>
+            {list.map(s => (
+              <option key={s.id} value={s.id}>
+                继承 {s.name}（{s.code}）· {s.versionCount ?? 0} 个版本
+              </option>
+            ))}
+          </select>
+        </FormField>
+
+        {createErr && (
+          <div className="warn-bar" style={{ marginTop: 12, justifyContent: 'flex-start' }}>
+            <span><b style={{ color: 'var(--reject)' }}>创建失败</b> {createErr}</span>
+          </div>
+        )}
+
+        <div className="warn-bar" style={{ marginTop: 12, justifyContent: 'flex-start' }}>
+          <span>
+            新策略以<b>草稿</b>建立，编码创建后不可修改；确认后进入该策略的版本管理页，v1 草稿可直接编排、发布。
+          </span>
+        </div>
+      </Modal>
 
       {/* ---------- 切流配置弹窗（决策级：一次给多个版本分配流量份额） ---------- */}
       <StrategyTrafficModal

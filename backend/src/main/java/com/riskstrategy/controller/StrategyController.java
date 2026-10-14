@@ -1,7 +1,10 @@
 package com.riskstrategy.controller;
 
 import com.riskstrategy.common.ApiResponse;
+import com.riskstrategy.dto.CreateStrategyDTO;
+import com.riskstrategy.dto.CreateVersionDTO;
 import com.riskstrategy.dto.StrategyTrafficDTO;
+import com.riskstrategy.service.DecisionService;
 import com.riskstrategy.service.StrategyService;
 import org.springframework.web.bind.annotation.*;
 
@@ -10,9 +13,11 @@ import org.springframework.web.bind.annotation.*;
 public class StrategyController {
 
     private final StrategyService strategyService;
+    private final DecisionService decisionService;
 
-    public StrategyController(StrategyService strategyService) {
+    public StrategyController(StrategyService strategyService, DecisionService decisionService) {
         this.strategyService = strategyService;
+        this.decisionService = decisionService;
     }
 
     /** 策略管理列表：只暴露 草稿 / 已发布 两种状态 */
@@ -27,9 +32,28 @@ public class StrategyController {
         return ApiResponse.ok(strategyService.versionsWithTraffic(strategyId));
     }
 
+    /**
+     * 新建策略：同时初始化 v1 草稿版本（画布成对落库），返回新策略的列表项。
+     * 可用 inheritFromStrategyId 指定初始画布的继承源策略。
+     */
+    @PostMapping
+    public ApiResponse<?> create(@RequestBody CreateStrategyDTO body) {
+        return ApiResponse.ok(strategyService.createStrategy(body));
+    }
+
+    /** 新增版本：新版本继承上一个画布的节点与连线配置（继承源可用 baseVersionNo 指定） */
+    @PostMapping("/{strategyId}/versions")
+    public ApiResponse<?> createVersion(@PathVariable Long strategyId, @RequestBody(required = false) CreateVersionDTO body) {
+        return ApiResponse.ok(decisionService.createVersion(strategyId, body));
+    }
+
+    /**
+     * 查看某版本的画布（只读）：返回节点与连线 + 来源说明，前端不提供任何编辑入口。
+     * 该版本未留存画布快照时降级为该策略最新编排的参照展示（canvasSource=FALLBACK）。
+     */
     @GetMapping("/versions/{versionId}/graph")
     public ApiResponse<?> graph(@PathVariable Long versionId) {
-        return ApiResponse.ok(strategyService.graph(versionId));
+        return ApiResponse.ok(decisionService.versionGraph(versionId));
     }
 
     /** 决策级切流配置：一次给决策下多个版本分配流量份额（随机 / 百分比合计必须 100%） */

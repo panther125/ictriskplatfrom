@@ -15,10 +15,15 @@ public class DecisionController {
         this.decisionService = decisionService;
     }
 
-    /** 取某策略的最新编排草稿（无则新建并种入 开始/结束），返回完整画布 */
+    /**
+     * 打开编排画布。
+     * 不带 versionId：取该策略最新草稿（无则新建并种入 开始/结束）。
+     * 带 versionId：打开该版本的画布；该版本没留存画布时自动派生新草稿承接（返回 derivedFromVersionNo）。
+     */
     @GetMapping("/by-strategy/{strategyId}")
-    public ApiResponse<?> byStrategy(@PathVariable Long strategyId) {
-        return ApiResponse.ok(decisionService.draftGraph(strategyId));
+    public ApiResponse<?> byStrategy(@PathVariable Long strategyId,
+                                     @RequestParam(required = false) Long versionId) {
+        return ApiResponse.ok(decisionService.draftGraph(strategyId, versionId));
     }
 
     /** 全量保存画布：节点（rule）与连线（decision_branch） */

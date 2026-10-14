@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client.js';
-import { ConclusionBadge, StatusTag } from '../components/Common.jsx';
+import { ConclusionBadge, Modal, StatusTag } from '../components/Common.jsx';
 
 /** 试算入参模板：overdue_cnt / risk_score / apply_amount 是决策条件实际读取的字段 */
 const DEFAULT_PARAMS = {
@@ -70,7 +70,8 @@ const ND_TD = { padding: '7px 8px', height: 'auto', verticalAlign: 'top', lineHe
 const NODE_RESULT_BADGE = {
   HIT: 'badge-pass', COND_TRUE: 'badge-pass',
   COND_FALSE: 'badge-unconfig', EVAL_FAIL: 'badge-unconfig',
-  INFO: 'badge-unconfig', OUTPUT: 'badge-unconfig'
+  INFO: 'badge-unconfig', OUTPUT: 'badge-unconfig',
+  SKIPPED: 'badge-unconfig'
 };
 const fmtMs = (n) => Math.round((Number(n) || 0) * 10) / 10;
 
@@ -82,12 +83,18 @@ const nodeCalcText = (n) => {
   return { main: n.expr, sub: sub || null };
 };
 
-/** 结论来源：编排图命中 / 默认规则集 —— 让使用者知道结论是谁给的 */
+/** 结论来源：编排画布脚本 / 编排图 / 默认规则集 —— 让使用者知道结论是谁给的 */
 const execSourceText = (src) => ({
   GRAPH: '编排图命中',
   DEFAULT_RULES: '默认规则集（该版本未编排决策图）',
-  DEFAULT_RULES_NO_MATCH: '默认规则集（未命中编排条件）'
+  DEFAULT_RULES_NO_MATCH: '默认规则集（未命中编排条件）',
+  DRAFT_SCRIPT: '编排画布·脚本执行',
+  DRAFT_NO_OUTPUT: '编排画布·未产出输出',
+  COMPILE_ERROR: '画布编译失败'
 }[src] || (src || '—'));
+
+/** 草稿优先的执行源（试算一律执行编排草稿时后端回传这三个值） */
+const DRAFT_SOURCES = ['DRAFT_SCRIPT', 'DRAFT_NO_OUTPUT', 'COMPILE_ERROR'];
 
 export default function Trial() {
   const navigate = useNavigate();
@@ -110,6 +117,14 @@ export default function Trial() {
   const [cases, setCases] = useState([]);
   const [caseResults, setCaseResults] = useState(null);
   const [runningCases, setRunningCases] = useState(false);
+  // 用例选择：选中的用例行高亮，入参已回填到试算输入框
+  const [selectedCaseId, setSelectedCaseId] = useState(null);
+  const [deleteCaseTarget, setDeleteCaseTarget] = useState(null);
+  const [deletingCase, setDeletingCase] = useState(false);
+  // 「保存为用例」弹窗：草稿 {name, expect}，预填自动名称与实际结论，用户可改
+  const [caseDraft, setCaseDraft] = useState(null);
+  const [savingCase, setSavingCase] = useState(false);
+  const [caseSaveErr, setCaseSaveErr] = useState('');
 
   const [replayTraceIds, setReplayTraceIds] = useState('[]');
   const [replayVersion, setReplayVersion] = useState('');
@@ -170,6 +185,7 @@ export default function Trial() {
     setVersionId(null);
     setReplayVersion((s?.versions || []).find(v => v.id === defId)?.versionNo || '');
     setResult(null); setCaseResults(null); setShadowResult(null); setResolveNote(null);
+    setSelectedCaseId(null); setDeleteCaseTarget(null);
   };
 
   const changeVersion = (val) => {
@@ -225,15 +241,13 @@ export default function Trial() {
       });
       const current = parsedNow.ok ? parsedNow.params : {};
       const template = data.template || {};
-      const keys = Object.keys(template);
-      // 无引用可解析（如各版本均未编排）时保持输入框原样，避免被清成空对象
-      if (keys.length > 0) {
-        const next = {};
-        keys.forEach(k => {
-          next[k] = Object.prototype.hasOwnProperty.call(current, k) ? current[k] : template[k];
-        });
-        setParamsText(JSON.stringify(next, null, 2));
-      }
+      // 一律按解析结果重建输入框键集：解析为空（如草稿未声明入参）时重置为 {}，
+      // 否则上一个策略的旧键会残留在框里，被误读成「解析的还是上一个策略的参数」。
+      const next = {};
+      Object.keys(template).forEach(k => {
+        next[k] = Object.prototype.hasOwnProperty.call(current, k) ? current[k] : template[k];
+      });
+      setParamsText(JSON.stringify(next, null, 2));
       setResolveNote(data);
       return data;
     } catch (e) {
@@ -261,21 +275,58 @@ export default function Trial() {
     }
   };
 
-  const saveAsCase = async () => {
+  /** 打开「保存为用例」弹窗：预填自动名称 + 本次实际结论，用户可改名与期望值 */
+  const openSaveCase = () => {
     if (!result) return;
     if (!paramsParse.ok) { setError(paramsParse.error); return; }
     setError('');
+    setCaseSaveErr('');
+    setCaseDraft({
+      name: `case_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}_${cases.length + 1}`,
+      expect: result.response?.conclusion || result.record?.conclusion || ''
+    });
+  };
+
+  const confirmSaveCase = async () => {
+    if (!caseDraft || !result) return;
+    const name = caseDraft.name.trim();
+    if (!name) { setCaseSaveErr('请填写用例名称'); return; }
+    setSavingCase(true); setCaseSaveErr('');
     try {
       await api.trial.createCase({
-        name: `case_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}_${cases.length + 1}`,
+        name,
         strategyId: strategy?.id ?? null,
         inputsJson: JSON.stringify(trialPayload()),
-        expectConclusion: result.response?.conclusion || result.record?.conclusion,
+        expectConclusion: caseDraft.expect.trim() || null,
         tags: '手工保存'
       });
       setCases(await api.trial.cases(strategy?.id));
+      setCaseDraft(null);
     } catch (e) {
-      setError(e.message || '保存用例失败');
+      setCaseSaveErr(e.message || '保存用例失败');
+    } finally {
+      setSavingCase(false);
+    }
+  };
+
+  /** 选中用例：把用例保存时的入参原样回填到试算输入框（与用例执行同口径） */
+  const applyCase = (c) => {
+    setSelectedCaseId(c.id);
+    setParamsText(JSON.stringify(c.inputs ?? {}, null, 2));
+  };
+
+  const confirmDeleteCase = async () => {
+    if (!deleteCaseTarget) return;
+    setDeletingCase(true); setError('');
+    try {
+      await api.trial.deleteCase(deleteCaseTarget.id);
+      setCases(await api.trial.cases(strategy?.id));
+      if (selectedCaseId === deleteCaseTarget.id) setSelectedCaseId(null);
+      setDeleteCaseTarget(null);
+    } catch (e) {
+      setError(e.message || '删除用例失败');
+    } finally {
+      setDeletingCase(false);
     }
   };
 
@@ -316,6 +367,11 @@ export default function Trial() {
   const featSourceNote = featureRuns.length === 0 ? null
     : okRuns.length === featureRuns.length ? '真实引擎值'
       : okRuns.length === 0 ? '内置派生兜底' : '真实引擎值 / 内置派生兜底';
+  const resp = result?.response || {};
+  const draftExec = DRAFT_SOURCES.includes(resp.execSource);
+  const outputs = resp.outputs || {};
+  const outputEntries = Object.entries(outputs);
+  const allOutputsEmpty = outputEntries.length === 0 || outputEntries.every(([, v]) => v == null);
 
   return (
     <div>
@@ -366,8 +422,12 @@ export default function Trial() {
         {strategy && <StatusTag text={strategy.statusText} />}
         <span style={{ color: 'var(--ink-weak)' }}>|</span>
         <span>版本 <b className="mono" style={{ color: 'var(--ink-1)' }}>{autoMode ? '自动' : (version?.versionNo || '—')}</b></span>
-        {autoMode ? (
-          result?.routing ? (
+        {draftExec ? (
+          <span>草稿优先 → 本次执行 <b className="mono" style={{ color: 'var(--decision)' }}>草稿 {result.record?.version}</b>{resp.execSource === 'DRAFT_NO_OUTPUT' ? '（未产出输出）' : ''}</span>
+        ) : autoMode ? (
+          resolveNote?.graphSource === 'DRAFT' && !result ? (
+            <span style={{ color: 'var(--ink-3)' }}>编排草稿 {resolveNote.version || '—'} 优先（试算执行当前画布）</span>
+          ) : result?.routing ? (
             result.routing.versionNo ? (
               <span>按切流配置判定 → 本次命中 <b className="mono" style={{ color: 'var(--decision)' }}>{result.routing.versionNo}</b></span>
             ) : (
@@ -383,7 +443,9 @@ export default function Trial() {
           </>
         )}
         <span style={{ color: 'var(--ink-weak)' }}>|</span>
-        {autoMode ? (
+        {draftExec ? (
+          <span>决策节点 <b className="mono" style={{ color: 'var(--ink-1)' }}>{nodeDetails.length}</b> 个（编排草稿全量）</span>
+        ) : autoMode ? (
           result ? (
             <span>决策节点 <b className="mono" style={{ color: 'var(--ink-1)' }}>{nodeDetails.length}</b> 个（命中版本）</span>
           ) : (
@@ -483,10 +545,12 @@ export default function Trial() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 12.5, color: 'var(--ink-2)' }}>试算对象</span>
               <span className="tag tag-gray" style={{ background: 'rgba(194,65,12,.10)', color: 'var(--decision)', border: 'none' }}>
-                {strategy?.code || '—'} · {autoMode ? '自动（按切流判定）' : (version?.versionNo || '—')}
-                {autoMode
+                {strategy?.code || '—'} · {(draftExec || resolveNote?.graphSource === 'DRAFT')
+                  ? `草稿 ${resolveNote?.version || result?.record?.version || '—'}（草稿优先）`
+                  : autoMode ? '自动（按切流判定）' : (version?.versionNo || '—')}
+                {!draftExec && resolveNote?.graphSource !== 'DRAFT' && (autoMode
                   ? (result?.routing?.versionNo ? ` → 命中 ${result.routing.versionNo}` : '')
-                  : ` · 流量 ${version?.grayscalePct ?? 0}%`}
+                  : ` · 流量 ${version?.grayscalePct ?? 0}%`)}
               </span>
             </div>
             <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
@@ -504,12 +568,17 @@ export default function Trial() {
               <div style={{ marginTop: 10 }}>
                 <div style={{ fontSize: 12, lineHeight: 1.8 }}>
                   <span style={{ color: 'var(--pass)', fontWeight: 600 }}>
-                    ✓ 已按 {resolveNote.version || '自动命中版本'} 解析入参
+                    ✓ 已按{resolveNote.graphSource === 'DRAFT'
+                      ? `编排草稿 ${resolveNote.version || '—'}`
+                      : ` ${resolveNote.version || '自动命中版本'}`} 解析入参
                   </span>
                   <span style={{ color: 'var(--ink-2)' }}>
                     ：策略自定义入参 {resolveNote.counts?.paramCount ?? 0} 个
                     {' · '}引用特征 {resolveNote.counts?.featureCount ?? 0} 个
-                    {' · '}特征入参合计 {resolveNote.counts?.featureInputCount ?? 0} 个，已填入下方输入框
+                    {' · '}特征入参合计 {resolveNote.counts?.featureInputCount ?? 0} 个
+                    {Object.keys(resolveNote.template || {}).length > 0
+                      ? '，已填入下方输入框'
+                      : '；当前配置未要求入参，输入框已重置为 {}'}
                   </span>
                   {resolveNote.routing?.versionNo && (
                     <div style={{ color: 'var(--ink-2)' }}>
@@ -527,7 +596,7 @@ export default function Trial() {
                   <div>
                     <div className="sub" style={{ marginBottom: 4 }}>策略自定义入参（决策图 param.* 引用）</div>
                     {(resolveNote.params || []).length === 0 ? (
-                      <div className="sub">该版本未引用策略入参</div>
+                      <div className="sub">{resolveNote.graphSource === 'DRAFT' ? '当前编排草稿未引用策略入参' : '该版本未引用策略入参'}</div>
                     ) : (
                       <table className="table" style={{ fontSize: 12 }}>
                         <thead><tr><th>入参名</th><th>引用节点</th></tr></thead>
@@ -545,7 +614,7 @@ export default function Trial() {
                   <div>
                     <div className="sub" style={{ marginBottom: 4 }}>特征入参（决策图 feat.* 引用 · 展开特征定义）</div>
                     {(resolveNote.features || []).length === 0 ? (
-                      <div className="sub">该版本未引用特征</div>
+                      <div className="sub">{resolveNote.graphSource === 'DRAFT' ? '当前编排草稿未引用特征' : '该版本未引用特征'}</div>
                     ) : (
                       <table className="table" style={{ fontSize: 12 }}>
                         <thead><tr><th>特征</th><th>入参名</th><th>类型</th><th>默认值</th><th>来源</th></tr></thead>
@@ -576,7 +645,9 @@ export default function Trial() {
               </div>
             )}
             <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 8, lineHeight: 1.7 }}>
-              {autoMode ? (
+              {resolveNote?.graphSource === 'DRAFT' ? (
+                <>该策略存在<b>编排草稿</b>（{resolveNote.version || '—'}）：试算一律执行草稿画布——编译为规则脚本后由引擎<b>逐节点真实求值</b>，分支条件、赋值、输出契约全部按当前画布执行；画布未产出输出时如实显示（不再套用默认规则集）。</>
+              ) : autoMode ? (
                 <>自动模式：先按<b>切流配置</b>判定本笔将执行的版本（按 user_id 哈希固定，可复现），再运行命中版本——带图版本按节点条件<b>真实求值</b>（按优先级短路），未编排走<b>默认准入规则集</b>。</>
               ) : version?.nodeCount > 0 ? (
                 <>该版本登记了 {version.nodeCount} 个决策节点，试算按节点条件<b>真实求值</b>（按优先级短路），命中哪个节点就用它的结论与原因码。</>
@@ -587,29 +658,42 @@ export default function Trial() {
             </div>
             <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
               <button className="btn primary" onClick={run} disabled={loading || !strategy}>{loading ? '试算中…' : '试算 →'}</button>
-              <button className="btn" onClick={saveAsCase} disabled={!result}>保存为用例</button>
+              <button className="btn" onClick={openSaveCase} disabled={!result}>保存为用例</button>
             </div>
           </div>
 
           <div className="card">
             <div className="card-title">
               <span>回归用例集</span>
-              <span className="sub">{cases.length} 条 · 仅当前策略 · 发布前自动全量跑</span>
+              <span className="sub">{cases.length} 条 · 仅当前策略 · 点击用例回填试算入参</span>
             </div>
             <table className="table">
-              <thead><tr><th>用例</th><th>期望</th><th>实际</th><th>状态</th></tr></thead>
+              <thead><tr><th>用例</th><th>期望</th><th>实际</th><th>状态</th><th style={{ width: 134 }}>操作</th></tr></thead>
               <tbody>
                 {cases.map(c => {
                   const s = statusOf(c);
+                  const selected = c.id === selectedCaseId;
                   return (
-                    <tr key={c.id}>
-                      <td style={{ fontSize: 12.5 }}>{c.name}</td>
+                    <tr
+                      key={c.id}
+                      onClick={() => applyCase(c)}
+                      title="点击该行：把用例入参回填到试算输入"
+                      style={{ cursor: 'pointer', ...(selected ? HIT_ROW_BG : null) }}
+                    >
+                      <td style={{ fontSize: 12.5 }}>
+                        {c.name}
+                        {selected && <span style={MINI_TAG}>已选用</span>}
+                      </td>
                       <td><ConclusionBadge text={c.expectConclusion} /></td>
                       <td>{s.actual === '—' ? <span style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>—</span> : <ConclusionBadge text={s.actual} />}</td>
                       <td>
                         <span className={`badge ${s.status === '一致' ? 'badge-pass' : s.status === '不一致' ? 'badge-reject' : 'badge-unconfig'}`}>
                           {s.status}
                         </span>
+                      </td>
+                      <td onClick={e => e.stopPropagation()}>
+                        <button className="btn sm" style={{ marginRight: 6 }} onClick={() => applyCase(c)}>使用</button>
+                        <button className="btn sm danger" onClick={() => setDeleteCaseTarget(c)}>删除</button>
                       </td>
                     </tr>
                   );
@@ -758,12 +842,28 @@ export default function Trial() {
                   {featureRuns.length > 0 && <>（节点 {fmtMs(nodeMs)} + 特征真实执行 {fmtMs(featMs)}）</>}
                   {' · '}结论 <ConclusionBadge text={result.record?.conclusion} /> · 命中规则 <span className="mono">{result.record?.hitRule || '—'}</span> · 结论来源 <span className="mono">{execSourceText(result.response?.execSource)}</span> · 降级 {result.record?.degraded ? 1 : 0} 次
                   <span className="mono" style={{ float: 'right', fontSize: 12.5, color: 'var(--ink-2)' }}>
-                    {result.record?.version} · {result.routing ? '自动判定命中' : '手动选择'}
+                    {result.record?.version} · {draftExec ? '编排草稿' : result.routing ? '自动判定命中' : '手动选择'}
                   </span>
                 </div>
               </>
             ) : <div className="empty">点击「试算 →」执行后展示链路</div>}
           </div>
+
+          {result && resp.scriptPreview && (
+            <div className="card">
+              <div className="card-title">
+                <span>编译脚本 · policy.rl</span>
+                <span className="sub">画布 → 规则脚本 · 引擎实际执行的就是它</span>
+              </div>
+              <details>
+                <summary style={{ cursor: 'pointer', fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.8, userSelect: 'none' }}>
+                  展开查看编译产物 · {String(resp.scriptPreview).split('\n').length} 行
+                  {resp.scriptChecksum && <> · checksum <span className="mono" style={{ color: 'var(--decision)' }}>sha256:{resp.scriptChecksum}</span></>}
+                </summary>
+                <div className="code-block" style={{ marginTop: 8 }}>{resp.scriptPreview}</div>
+              </details>
+            </div>
+          )}
 
           {result && featureRuns.length > 0 && (
             <div className="card">
@@ -831,10 +931,12 @@ export default function Trial() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
                   <ConclusionBadge text={result.record?.conclusion} />
                   <span style={{ fontSize: 13, color: 'var(--ink-2)' }}>
-                    {result.routing?.versionNo
-                      ? <>按切流判定命中 <b className="mono" style={{ color: 'var(--decision)' }}>{result.routing.versionNo}</b></>
-                      : <>手动指定 <b className="mono" style={{ color: 'var(--decision)' }}>{result.record?.version}</b></>}
-                    {' · '}{execSourceText(result.response?.execSource)}
+                    {draftExec
+                      ? <>编排草稿 <b className="mono" style={{ color: 'var(--decision)' }}>{result.record?.version}</b></>
+                      : result.routing?.versionNo
+                        ? <>按切流判定命中 <b className="mono" style={{ color: 'var(--decision)' }}>{result.routing.versionNo}</b></>
+                        : <>手动指定 <b className="mono" style={{ color: 'var(--decision)' }}>{result.record?.version}</b></>}
+                    {' · '}{execSourceText(resp.execSource)}
                   </span>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0,1fr))', gap: '8px 12px', fontSize: 12.5 }}>
@@ -852,7 +954,7 @@ export default function Trial() {
                   </div>
                   <div className="prop-row" style={{ border: 'none', padding: '2px 0', marginBottom: 0 }}>
                     <div className="k" style={{ width: 68 }}>执行版本</div>
-                    <div className="v">{result.record?.version}{result.routing ? '（自动判定）' : '（手动）'}</div>
+                    <div className="v">{result.record?.version}{draftExec ? '（草稿优先）' : result.routing ? '（自动判定）' : '（手动）'}</div>
                   </div>
                   <div className="prop-row" style={{ border: 'none', padding: '2px 0', marginBottom: 0 }}>
                     <div className="k" style={{ width: 68 }}>总耗时</div>
@@ -875,13 +977,57 @@ export default function Trial() {
                     <div className="v">{result.response?.hitBundle || '—'}</div>
                   </div>
                 </div>
-                <div className="code-block" style={{ marginTop: 12 }}>{JSON.stringify(result.response, null, 2)}</div>
+                {resp.compileError && (
+                  <div style={{ marginTop: 12, padding: '9px 12px', background: 'rgba(194,65,12,.08)', border: '1px solid #F0C9A0', borderRadius: 8, fontSize: 12.5, lineHeight: 1.7, color: '#B45309' }}>
+                    <b>画布编译失败</b>：{resp.compileError}
+                    <div style={{ color: 'var(--ink-2)' }}>请回编排页修正画布（连线 / 端口 / 环）后重试——试算不会以默认规则集代替执行。</div>
+                  </div>
+                )}
+                {draftExec && outputEntries.length > 0 && (
+                  <div style={{ marginTop: 12 }}>
+                    <div className="sub" style={{ marginBottom: 4 }}>出参 outputs（画布契约 {outputEntries.length} 个）</div>
+                    <table className="table" style={{ fontSize: 12 }}>
+                      <thead><tr><th>出参</th><th>值</th></tr></thead>
+                      <tbody>
+                        {outputEntries.map(([k, v]) => (
+                          <tr key={k}>
+                            <td className="mono" style={{ fontSize: 12.5 }}>o.{k}</td>
+                            <td className="mono" style={{ fontSize: 12.5, ...(v == null ? { color: 'var(--ink-3)' } : { color: 'var(--decision)', fontWeight: 600 }) }}>
+                              {v == null ? '—（未赋值）' : jsonBrief(v)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                {draftExec && allOutputsEmpty && !resp.compileError && (
+                  <div style={{ marginTop: 10, padding: '9px 12px', background: '#FFFCF8', borderRadius: 8, fontSize: 12.5, lineHeight: 1.7, color: 'var(--ink-2)' }}>
+                    画布未产出输出：本次执行路径未触达赋值节点（或画布未声明出参）——结论/原因码如实显示，不套用默认规则集。
+                    {resp.execSource === 'DRAFT_NO_OUTPUT' && result.record?.hitRule && <> 命中节点 <span className="mono">{result.record.hitRule}</span>。</>}
+                  </div>
+                )}
+                {(resp.warnings || []).length > 0 && (
+                  <div style={{ marginTop: 10 }}>
+                    {(resp.warnings || []).map((w, i) => <div key={i} style={FR_WARN}>⚠ {w}</div>)}
+                  </div>
+                )}
+                <div style={{ marginTop: 12 }}>
+                  <div className="sub" style={{ marginBottom: 4 }}>
+                    {draftExec ? '最终报文（决策输出 · 引擎实际产出）' : '响应报文'}
+                  </div>
+                  <div className="code-block">{JSON.stringify(
+                    draftExec
+                      ? { conclusion: resp.conclusion, reasonCode: resp.reasonCode, outputs: resp.outputs ?? {} }
+                      : result.response,
+                    null, 2)}</div>
+                </div>
               </>
             ) : <div className="empty">—</div>}
           </div>
 
           <div className="card">
-            <div className="card-title"><span>变量快照</span><span className="sub">view / feat / param / node</span></div>
+            <div className="card-title"><span>变量快照</span><span className="sub">view / feat / param / o.* 出参</span></div>
             {result ? (
               Object.entries(result.variableSnapshot || {}).map(([group, vars]) => (
                 <div key={group} style={{ marginBottom: 10 }}>
@@ -900,6 +1046,76 @@ export default function Trial() {
           </div>
         </div>
       </div>
+
+      <Modal
+        open={!!caseDraft}
+        title="保存为用例"
+        sub={`POST /trial/cases · 绑定策略 ${strategy?.code || '—'} · 入参取当前试算输入`}
+        onClose={() => !savingCase && setCaseDraft(null)}
+        width={520}
+        footer={(
+          <>
+            <button className="btn" disabled={savingCase} onClick={() => setCaseDraft(null)}>取消</button>
+            <button className="btn primary" disabled={savingCase} onClick={confirmSaveCase}>
+              {savingCase ? '保存中…' : '保存用例'}
+            </button>
+          </>
+        )}
+      >
+        <div className="field">
+          <label>用例名称<span className="req">*</span></label>
+          <input
+            className="input" autoFocus
+            value={caseDraft?.name ?? ''}
+            placeholder="如 逾期3笔_拒绝"
+            onChange={e => setCaseDraft(d => ({ ...d, name: e.target.value }))}
+          />
+        </div>
+        <div className="field" style={{ marginBottom: 12 }}>
+          <label>期望值（期望结论）</label>
+          <input
+            className="input mono"
+            value={caseDraft?.expect ?? ''}
+            placeholder="如 REJECT"
+            onChange={e => setCaseDraft(d => ({ ...d, expect: e.target.value }))}
+          />
+          <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 6, lineHeight: 1.7 }}>
+            默认取本次试算结论；「运行全部用例」按该值逐条比对，不一致的用例标记「不一致」。
+          </div>
+        </div>
+        <div style={{ background: '#FFFCF8', border: '1px solid var(--stroke-weak)', borderRadius: 8, padding: '10px 12px', fontSize: 12.5, lineHeight: 1.9, color: 'var(--ink-2)' }}>
+          <div>
+            试算对象 <b className="mono" style={{ color: 'var(--ink-1)' }}>{result?.record?.version}</b>
+            （{draftExec ? '编排草稿' : result?.routing ? '自动判定命中' : '手动指定'}）
+            {' · '}本次实际结论 <ConclusionBadge text={result?.record?.conclusion} />
+          </div>
+          <div style={{ color: 'var(--ink-3)' }}>入参摘要 <span className="mono">{jsonBrief(trialPayload())}</span></div>
+        </div>
+        {caseSaveErr && <div className="field-err" style={{ marginTop: 10 }}>⚠ {caseSaveErr}</div>}
+      </Modal>
+
+      <Modal
+        open={!!deleteCaseTarget}
+        title="删除用例"
+        sub="DELETE /trial/cases/{id} · 仅删除该回归用例，不影响试算记录"
+        onClose={() => !deletingCase && setDeleteCaseTarget(null)}
+        width={460}
+        footer={(
+          <>
+            <button className="btn" disabled={deletingCase} onClick={() => setDeleteCaseTarget(null)}>取消</button>
+            <button className="btn danger" disabled={deletingCase} onClick={confirmDeleteCase}>
+              {deletingCase ? '删除中…' : '确认删除'}
+            </button>
+          </>
+        )}
+      >
+        <div style={{ fontSize: 14, color: '#241C15', lineHeight: 1.7 }}>
+          确认删除用例 <b className="mono" style={{ color: 'var(--decision)' }}>{deleteCaseTarget?.name}</b>？
+        </div>
+        <div style={{ fontSize: 13.5, color: 'var(--ink-2)', marginTop: 10, lineHeight: 1.7, background: '#FFFCF8', border: '1px solid var(--stroke-weak)', borderRadius: 8, padding: '10px 12px' }}>
+          删除后该用例不再参与「运行全部用例」；已保存的试算记录与其他用例不受影响。
+        </div>
+      </Modal>
     </div>
   );
 }

@@ -2,12 +2,23 @@ import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { ConclusionBadge } from '../components/Common.jsx';
+import TrackCanvas, { analyzeRoute } from '../components/TrackCanvas.jsx';
 
 const RANGE_OPTIONS = [
   { value: '1h', label: '近 1 小时' },
   { value: '6h', label: '近 6 小时' },
   { value: '24h', label: '近 24 小时' }
 ];
+
+const ROUTE_CHIP = {
+  display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 999,
+  border: '1px solid #F0CDA9', background: '#FFF6EC', fontFamily: 'var(--font-mono)', fontSize: 11.5
+};
+const FEAT_CHIP = {
+  display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 999,
+  border: '1px solid var(--stroke-weak)', background: '#F6F1E9', fontFamily: 'var(--font-mono)',
+  fontSize: 11.5, color: 'var(--ink-2)'
+};
 
 export default function Track() {
   // 试算中心「在决策日志中查看」带 ?traceId=xxx 跳过来：直接预填检索框，进入即可看到那条链路
@@ -17,23 +28,17 @@ export default function Track() {
   const [records, setRecords] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [detail, setDetail] = useState(null);
-  const [sampling, setSampling] = useState(null);
-  const [degradeSources, setDegradeSources] = useState([]);
+  const [canvas, setCanvas] = useState(null);
+  const [canvasErr, setCanvasErr] = useState('');
   const [keyword, setKeyword] = useState(() => searchParams.get('traceId') || '');
   const [conclusion, setConclusion] = useState('');
   const [err, setErr] = useState('');
   const [replaying, setReplaying] = useState(false);
 
-  // 统计条 + 降级来源：GET /track/stats、GET /track/degrade-sources
+  // 统计条：GET /track/stats
   useEffect(() => {
     api.track.stats(range).then(setStats).catch(() => setStats(null));
-    api.track.degradeSources(range).then(setDegradeSources).catch(() => setDegradeSources([]));
   }, [range]);
-
-  // 采样与留存策略：GET /track/sampling-config
-  useEffect(() => {
-    api.track.samplingConfig().then(setSampling).catch(() => setSampling(null));
-  }, []);
 
   // 列表：有筛选条件走 search，否则走 recent
   const loadList = () => {
@@ -55,6 +60,17 @@ export default function Track() {
     api.track.detail(selectedId).then(setDetail).catch(e => { setDetail(null); setErr(e.message || '加载 Trace 详情失败'); });
   }, [selectedId]);
 
+  // 对应策略画布：GET /track/{id}/canvas（只读；按该 trace 的策略 + 版本解析节点与连线）
+  useEffect(() => {
+    if (selectedId == null) { setCanvas(null); setCanvasErr(''); return () => {}; }
+    let alive = true;
+    setCanvas(null); setCanvasErr('');
+    api.track.canvas(selectedId)
+      .then(g => { if (alive) setCanvas(g); })
+      .catch(e => { if (alive) setCanvasErr(e.message || '加载策略画布失败'); });
+    return () => { alive = false; };
+  }, [selectedId]);
+
   const replay = async () => {
     if (selectedId == null) return;
     setReplaying(true); setErr('');
@@ -67,10 +83,12 @@ export default function Track() {
     finally { setReplaying(false); }
   };
 
-  const sel = records.find(r => r.id === selectedId);
   const steps = detail?.steps || [];
-  const vars = detail?.variables || {};
-  const timing = detail?.timingBreakdown || {};
+  const route = analyzeRoute(steps);
+  const canvasKeys = new Set((canvas?.nodes || []).map(n => n.nodeKey));
+  const offCanvas = canvas?.nodes?.length
+    ? [...route.execIds].filter(id => !canvasKeys.has(id))
+    : [];
 
   return (
     <div>
@@ -80,7 +98,7 @@ export default function Track() {
           <div className="sub">运行态 / 决策日志与回放 / 单笔 Trace 详情</div>
         </div>
         <div className="actions" style={{ fontSize: 12.5, color: 'var(--ink-2)' }}>
-          共 {records.length} 条日志 · 点击任意一行查看完整链路
+          共 {records.length} 条日志 · 点击任意一行查看完整链路与画布
         </div>
       </div>
 
@@ -175,70 +193,72 @@ export default function Track() {
             ) : <div className="empty">选择左侧记录查看 Trace 详情</div>}
           </div>
 
+          {/* 策略画布：该 trace 实际运行的那张画布，走过的节点与连线高亮 */}
           <div className="card">
-            <div className="card-title"><span>Decision Trace · 逐节点</span><span className="sub">{steps.length} span</span></div>
-            {steps.length ? (
-              <div className="timeline">
-                {steps.map((s, i) => (
-                  <div key={i} className={`timeline-item ${s.category === '取数' ? 'warn' : 'success'}`}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <div>
-                        <span className="mono" style={{ fontSize: 12.5, fontWeight: 500 }}>{s.nodeId} {s.nodeType}</span>
-                        <span style={{ fontSize: 12.5, color: '#5C4A38', marginLeft: 8 }}>{s.stepTitle}</span>
-                      </div>
-                      <span className="mono" style={{ fontSize: 12.5, color: 'var(--ink-2)' }}>{s.elapsedMs}ms</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : <div className="empty">暂无 span 数据</div>}
-            <div style={{ fontSize: 12.5, color: 'var(--ink-2)', marginTop: 8 }}>
-              命中路径 {(detail?.hitPath || []).join(' → ') || '—'}
+            <div className="card-title">
+              <span>策略画布 · 运行路线高亮</span>
+              <span className="sub">
+                {canvas
+                  ? `${canvas.strategyName || `策略 #${canvas.strategyId}`} · 画布 ${canvas.versionNo || '—'} · ${(canvas.nodes || []).length} 节点 / ${(canvas.edges || []).length} 连线`
+                  : 'GET /track/{id}/canvas'}
+              </span>
             </div>
-          </div>
-
-          <div className="card">
-            <div className="card-title"><span>命中规则 & 变量快照</span></div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-              <div>
-                <div style={{ marginBottom: 10 }}>
-                  <span style={{ fontSize: 12.5, color: 'var(--ink-2)' }}>命中规则</span>
-                  <div className="mono" style={{ fontSize: 13.5, color: 'var(--reject)', marginTop: 2 }}>
-                    {detail?.record?.hitRule || '—'}
-                  </div>
-                  <div className="mono" style={{ fontSize: 12.5, marginTop: 2 }}>原因码 {detail?.record?.reasonCode || '—'}</div>
+            {canvasErr && (
+              <div className="warn-bar" style={{ marginBottom: 10, justifyContent: 'flex-start' }}>画布加载失败：{canvasErr}</div>
+            )}
+            {canvas?.source === 'FALLBACK' && canvas.note && (
+              <div className="warn-bar" style={{ marginBottom: 10, justifyContent: 'flex-start' }}>{canvas.note}</div>
+            )}
+            {canvas && (canvas.nodes || []).length ? (
+              <>
+                <TrackCanvas graph={canvas} steps={steps} />
+                <div style={{ marginTop: 8, display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 12, color: 'var(--ink-2)' }}>
+                  <span><b style={{ color: 'var(--decision)' }}>橙框 + 毫秒徽标</b> = 本笔实际执行</span>
+                  <span>灰化节点 = 未走到</span>
+                  <span><b style={{ color: 'var(--decision)' }}>橙色连线</b> = 实际走向（虚线为 else 出口）</span>
                 </div>
-                <div>
-                  <div style={{ fontSize: 12.5, color: 'var(--ink-2)', marginBottom: 4 }}>变量快照</div>
-                  {Object.entries(vars).map(([ns, m]) => (
-                    <div key={ns} style={{ marginBottom: 6 }}>
-                      <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>{ns}</div>
-                      {Object.entries(m || {}).map(([k, v]) => (
-                        <div key={k} className="mono" style={{ fontSize: 12.5 }}>
-                          {k} = <b style={{ color: 'var(--decision)' }}>{v}</b>
-                        </div>
+                <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', fontSize: 12.5 }}>
+                    <span style={{ color: 'var(--ink-2)', flex: 'none' }}>运行路线</span>
+                    {route.nodeSteps.length ? route.nodeSteps.map((s, i) => (
+                      <React.Fragment key={`${s.nodeId}-${i}`}>
+                        {i > 0 && <span style={{ color: 'var(--ink-3)' }}>→</span>}
+                        <span style={ROUTE_CHIP}>
+                          {s.nodeId}
+                          <span style={{ color: 'var(--ink-3)' }}>{s.elapsedMs}ms</span>
+                        </span>
+                      </React.Fragment>
+                    )) : <span style={{ color: 'var(--ink-3)' }}>暂无执行节点记录</span>}
+                  </div>
+                  {route.featSteps.length > 0 && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', fontSize: 12.5 }}>
+                      <span style={{ color: 'var(--ink-2)', flex: 'none' }}>特征执行</span>
+                      {route.featSteps.map((s, i) => (
+                        <span key={i} style={FEAT_CHIP}>
+                          {String(s.stepTitle || '').replace(/^特征·/, '')} · {s.elapsedMs}ms
+                        </span>
                       ))}
                     </div>
-                  ))}
-                  {!Object.keys(vars).length && <div className="empty">—</div>}
+                  )}
+                  {offCanvas.length > 0 && (
+                    <div style={{ fontSize: 12, color: 'var(--degrade)' }}>
+                      另有 {offCanvas.length} 个执行节点不在当前画布上（{offCanvas.join('、')}），可能是历史版本口径。
+                    </div>
+                  )}
                 </div>
+              </>
+            ) : (
+              <div className="empty" style={{ padding: '28px 12px' }}>
+                {canvasErr ? '画布暂不可用'
+                  : selectedId == null ? '选择左侧记录查看对应策略画布'
+                    : canvas ? '该策略暂无可展示的画布内容' : '正在加载画布…'}
               </div>
-              <div>
-                <div style={{ fontSize: 12.5, color: 'var(--ink-2)', marginBottom: 4 }}>耗时分解</div>
-                {Object.entries(timing).map(([cat, v]) => (
-                  <div key={cat} className="row" style={{ padding: '6px 0' }}>
-                    <span className="mono" style={{ fontSize: 12.5 }}>{cat}</span>
-                    <span className="mono" style={{ fontSize: 12.5, color: 'var(--ink-2)' }}>{v?.ms}ms · {v?.pct}%</span>
-                  </div>
-                ))}
-                {!Object.keys(timing).length && <div className="empty">—</div>}
-              </div>
-            </div>
+            )}
           </div>
 
           <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ fontSize: 12.5, color: 'var(--ink-2)' }}>
-              当前 traceId <span className="mono">{sel?.traceId || detail?.record?.traceId || '—'}</span> · 采样原因：{detail?.record?.samplingReason || '按策略配置'}
+              当前 traceId <span className="mono">{detail?.record?.traceId || '—'}</span> · 采样原因：{detail?.record?.samplingReason || '按策略配置'}
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
               <button className="btn sm" disabled={replaying || selectedId == null} onClick={replay}>
@@ -246,36 +266,6 @@ export default function Track() {
               </button>
             </div>
           </div>
-        </div>
-      </div>
-
-      {/* 采样与留存策略 + 降级来源 */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 16 }}>
-        <div className="card">
-          <div className="card-title"><span>采样与留存策略</span><span className="sub">GET /track/sampling-config</span></div>
-          {[
-            ['比例采样', sampling ? `${sampling.ratioSampling} · 按 traceId 哈希一致采样` : '—'],
-            ['错误必采', sampling ? (sampling.errorAutoCapture ? '开启 · 降级 / 超时 / 异常' : '关闭') : '—'],
-            ['慢请求阈值', sampling ? `${sampling.slowThresholdMs}ms · 超阈值强制采样` : '—'],
-            ['留存 / 存储', sampling?.retention || '—']
-          ].map(([k, v]) => (
-            <div key={k} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: 12.5, borderBottom: '1px solid var(--stroke-weak)' }}>
-              <span style={{ color: 'var(--ink-2)' }}>{k}</span>
-              <span>{v}</span>
-            </div>
-          ))}
-        </div>
-        <div className="card">
-          <div className="card-title">
-            <span>降级来源 Top</span>
-            <span className="sub">{RANGE_OPTIONS.find(o => o.value === range)?.label} · {degradeSources.reduce((s, d) => s + (d.count || 0), 0)} 次</span>
-          </div>
-          {degradeSources.length ? degradeSources.map(d => (
-            <div key={d.name} className="row" style={{ padding: '8px 0' }}>
-              <span className="mono" style={{ fontSize: 12.5 }}>{d.name}</span>
-              <span className="mono" style={{ fontSize: 12.5, color: 'var(--reject)', fontWeight: 600 }}>{d.count} 次</span>
-            </div>
-          )) : <div className="empty">暂无降级记录</div>}
         </div>
       </div>
     </div>

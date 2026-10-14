@@ -9,6 +9,10 @@
 
 ## 一、数据来源（全部为既有数据，零 DDL）
 
+> **v2 修订（2026-10-15）：编排草稿优先。** 编排编辑器保存的图在 `decision`（该策略最新 DRAFT）+ `rule`（节点 `config_json`），那是策略的「当前配置」；`decision_node` 版本决策图可能落后于它（历史 / 种子数据），此前按版本图解析会得到过时入参（如 loan_apply 解析出旧 4 参，而当前配置只有 `testInput` + `f.dreiver_feature` → `a`、`b`）。
+>
+> 解析顺序：**① 有编排草稿 → 一律按草稿解析**（START 的 `inputs` 声明 + 各节点配置文本里的 `c./param.`、`f./feat.` 引用），响应带 `"graphSource": "DRAFT"`、`version` = 草稿版本号（如 v13）；草稿为空同样不回落到版本图——那是「当前配置没有入参」，模板为空并挂 ⚠（2026-10-15 二次修订：此前"草稿引用非空才接管"会让空草稿策略回落到旧版本图/保留上一个策略的输入框内容）。**② 无草稿 → 回落本表原有版本决策图逻辑**，响应带 `"graphSource": "VERSION"`。纯查询语义不变（不写任何表；用 Mapper 直查草稿，不走会自动建草稿的 `DecisionService.draftGraph`）。
+
 | 解析项 | 数据来源 | 说明 |
 | --- | --- | --- |
 | ① 策略自定义入参 | 所选版本决策图的**引用变量清单** `decision_node.ref_vars_json` 里 `param.*` 条目的并集 | 例：loan_apply v12 → `n_001` 的 `param.user_id / param.apply_amount / param.channel`、`n_006` 的 `param.channel / param.risk_score` → 去重 4 个 |
@@ -58,7 +62,8 @@
 
 要点：
 
-- `template` = `params` 与各特征 `inputs` 的键并集；样例值优先 `defaultValue → sampleValue`，其余按类型给占位值（数值 `0`、字符串 `""`、布尔 `false`）；策略入参无类型信息，给 `""`。
+- `graphSource`：`"DRAFT"` = 按编排草稿解析（`versionId: null`、`version` 为草稿版本号、`routing: null`）；`"VERSION"` = 按版本决策图解析（即上例）。
+- `template` = `params` 与各特征 `inputs` 的键并集；样例值优先 `defaultValue → sampleValue`，其余按类型给占位值（数值 `0`、字符串 `""`、布尔 `false`）；策略入参无类型信息，给 `""`；草稿路径按 START `inputs[].defaultValue / type` 给占位值。
 - `params[].refNodes` / `features[].refNodes` 带 `节点ID + 标题`，前端提示「这个入参是谁引用的」，可审计。
 - 特征不存在（已删除/编码对不上）→ 仅进 `warnings`；特征已下线 → 照常解析其入参，同时 `warnings` 提醒「试算时不会计算它」。
 - 版本无决策节点（未编排）→ `template: {}`、`emptyGraph: true`、`warnings` 提示「该版本未编排决策图，试算会走默认规则集」。

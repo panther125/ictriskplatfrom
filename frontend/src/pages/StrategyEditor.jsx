@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { PageHeader, StatusTag } from '../components/Common.jsx';
 
@@ -340,8 +340,18 @@ function fmtTime(t) {
 
 /* ---------------- 主组件 ---------------- */
 
+/* 只读模式的统一提示：任何编辑尝试都给出同一句话，并指明出路 */
+const READ_ONLY_HINT = '只读查看：该版本内容已定版，画布不能修改。如需调整，请回版本管理页用「新增版本」继承后再编排。';
+
 export default function StrategyEditor() {
   const { strategyId } = useParams();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  /* ?versionId=x 打开指定版本；?mode=view 只读查看（已定版版本，画布可缩放不可修改） */
+  const versionId = searchParams.get('versionId');
+  const readOnly = searchParams.get('mode') === 'view';
+  /* 新增版本跳转过来时带的继承源（跳转是重新加载，DTO 里的 derivedFromVersionNo 拿不到，只能靠 URL 传递） */
+  const inheritedFrom = searchParams.get('inherited');
   const [meta, setMeta] = useState(null);
   const [nodes, setNodes] = useState([]);
   const [edges, setEdges] = useState([]);
@@ -390,21 +400,35 @@ export default function StrategyEditor() {
   const applyGraph = (g) => {
     setMeta({
       decisionId: g.decisionId, strategyCode: g.strategyCode, strategyName: g.strategyName,
-      versionNo: g.versionNo, status: g.status, updatedAt: g.updatedAt
+      versionNo: g.versionNo, status: g.status, updatedAt: g.updatedAt,
+      canvasSource: g.canvasSource, canvasNote: g.canvasNote,
+      derivedFromVersionNo: g.derivedFromVersionNo
     });
     setNodes((g.nodes || []).map(normalizeNode));
     setEdges((g.edges || []).map((e) => ({ fromNode: e.fromNode, fromPort: e.fromPort || null, toNode: e.toNode, label: e.label || null })));
     select(null);
     setDirty(false);
+    const inherited = g.derivedFromVersionNo || inheritedFrom;
+    if (inherited) {
+      setNotice({ kind: 'ok', text: `已基于 ${inherited} 新建草稿 ${g.versionNo}，画布配置已继承，可直接修改后保存。` });
+    }
   };
 
   useEffect(() => {
     let alive = true;
-    api.decisions.byStrategy(strategyId)
+    /* 只读查看走版本口径（不带副作用）；编排走草稿口径（可派生新草稿） */
+    if (readOnly && !versionId) {
+      setNotice({ kind: 'err', text: '查看画布缺少版本参数，请从版本管理页的「查看」进入。' });
+      return () => { alive = false; };
+    }
+    const req = readOnly
+      ? api.strategies.graph(versionId)
+      : api.decisions.byStrategy(strategyId, versionId);
+    req
       .then((g) => { if (alive) applyGraph(g); })
       .catch((err) => { if (alive) setNotice({ kind: 'err', text: `加载失败：${err.message}` }); });
     return () => { alive = false; };
-  }, [strategyId]);
+  }, [strategyId, versionId, readOnly]);
 
   /* 已上线特征注册表：供 f. 变量 chips 与引用校验使用（取不到则跳过 f. 校验） */
   useEffect(() => {
@@ -541,10 +565,11 @@ export default function StrategyEditor() {
     };
   }, []);
 
-  /* Delete 删除选中（输入控件内不拦截） */
+  /* Delete 删除选中（输入控件内不拦截；只读模式一律不删） */
   useEffect(() => {
     const onKey = (e) => {
       if (e.key === 'Escape') { select(null); return; }
+      if (readOnly) return;
       if (e.key !== 'Delete' && e.key !== 'Backspace') return;
       const t = e.target;
       const tag = (t && t.tagName) || '';
@@ -569,6 +594,7 @@ export default function StrategyEditor() {
   };
 
   const startPaletteDrag = (e, type) => {
+    if (readOnly) { setNotice({ kind: 'err', text: READ_ONLY_HINT }); return; }
     if (e.button !== 0) return;
     e.preventDefault();
     const r = viewportRef.current.getBoundingClientRect();
@@ -585,11 +611,13 @@ export default function StrategyEditor() {
     if (e.button !== 0) return;
     e.stopPropagation();
     select({ kind: 'node', key: n.nodeKey });
+    if (readOnly) return;
     gestRef.current = { kind: 'node', key: n.nodeKey, sx: e.clientX, sy: e.clientY, ox: n.x, oy: n.y, moved: false };
     setGestKind('node');
   };
 
   const startConnect = (e, n, port) => {
+    if (readOnly) { setNotice({ kind: 'err', text: READ_ONLY_HINT }); return; }
     if (e.button !== 0) return;
     e.stopPropagation();
     e.preventDefault();
@@ -668,7 +696,7 @@ export default function StrategyEditor() {
   }, []);
 
   const onSave = async () => {
-    if (!meta || saving) return;
+    if (!meta || saving || readOnly) return;
     setSaving(true);
     try {
       const g = await api.decisions.saveGraph(meta.decisionId, {
@@ -716,25 +744,48 @@ export default function StrategyEditor() {
   return (
     <div>
       <PageHeader
-        title="策略编排"
-        sub={`配置态 / 策略编排 / ${meta.strategyCode}`}
+        title={readOnly ? '策略编排 · 查看' : '策略编排'}
+        sub={`配置态 / 策略管理 / 版本管理 / ${readOnly ? '查看 ' : '编排 '}${meta.strategyCode || `#${strategyId}`}${meta.versionNo ? ` · ${meta.versionNo}` : ''}`}
         actions={
-          <>
-            {dirty && <span className="tag tag-warn">未保存</span>}
-            <StatusTag text={meta.status === 'DRAFT' ? '草稿' : meta.status} />
-            <button className="btn primary" onClick={onSave} disabled={saving || !dirty}>
-              {saving ? '保存中…' : '保存'}
-            </button>
-          </>
+          readOnly ? (
+            <>
+              <span className="tag tag-published">只读</span>
+              <StatusTag text={meta.status === 'DRAFT' ? '草稿' : meta.status} />
+              <button className="btn sm" onClick={() => navigate(`/strategy/${strategyId}/versions`)}>← 返回版本管理</button>
+            </>
+          ) : (
+            <>
+              {dirty && <span className="tag tag-warn">未保存</span>}
+              <StatusTag text={meta.status === 'DRAFT' ? '草稿' : meta.status} />
+              <button className="btn primary" onClick={onSave} disabled={saving || !dirty}>
+                {saving ? '保存中…' : '保存'}
+              </button>
+            </>
+          )
         }
       />
 
       <div className="card" style={{ padding: '10px 16px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <b className="mono">{meta.strategyCode}</b>
         <span style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>{meta.strategyName}</span>
-        <span className="tag tag-draft">{meta.versionNo} · 草稿</span>
-        <span className="mono" style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>上次保存 {fmtTime(meta.updatedAt)}</span>
+        <span className={readOnly ? 'tag tag-published' : 'tag tag-draft'}>{meta.versionNo || '—'} · {readOnly ? '已定版' : '草稿'}</span>
+        <span className="mono" style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>
+          {readOnly ? `该版本画布 · ${nodes.length} 节点 / ${edges.length} 连线` : `上次保存 ${fmtTime(meta.updatedAt)}`}
+        </span>
       </div>
+
+      {readOnly && (
+        <div className="warn-bar" style={{ marginBottom: 12, alignItems: 'flex-start' }}>
+          <span>
+            <b style={{ color: 'var(--reject)' }}>只读查看</b>{' '}
+            版本 <b className="mono">{meta.versionNo || '—'}</b> 已上线，画布内容已定版——可以缩放、平移、选中查看每个节点的配置，但不能修改。
+            {meta.canvasSource === 'FALLBACK' && meta.canvasNote && <><br />{meta.canvasNote}</>}
+            {meta.canvasSource === 'EMPTY' && meta.canvasNote && <><br />{meta.canvasNote}</>}
+            <br />如需调整：回版本管理页点「新增版本」，新版本会继承这份画布配置，改完再发布。
+          </span>
+          <button className="btn sm" onClick={() => navigate(`/strategy/${strategyId}/versions`)}>去新增版本</button>
+        </div>
+      )}
 
       {notice && (
         notice.kind === 'ok'
@@ -750,7 +801,13 @@ export default function StrategyEditor() {
             <div key={g.group} style={{ marginBottom: 14 }}>
               <div className="p-group">{g.group}</div>
               {g.items.map((item) => (
-                <div key={item.type} className="palette-item" onMouseDown={(e) => startPaletteDrag(e, item.type)}>
+                <div
+                  key={item.type}
+                  className="palette-item"
+                  title={readOnly ? READ_ONLY_HINT : `拖拽「${item.name}」到画布`}
+                  style={readOnly ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
+                  onMouseDown={(e) => startPaletteDrag(e, item.type)}
+                >
                   <span className="p-glyph" style={{ color: TYPE_COLOR[item.type] }}><NodeGlyph type={item.type} /></span>
                   <div style={{ minWidth: 0 }}>
                     <div className="p-name">{item.name}</div>
@@ -761,7 +818,9 @@ export default function StrategyEditor() {
             </div>
           ))}
           <div style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.7, marginTop: 8, padding: '0 4px', borderTop: '1px solid var(--stroke-weak)', paddingTop: 10 }}>
-            拖拽节点到画布；从节点底部端口拖出连线；拖拽空白处平移画布。
+            {readOnly
+              ? '只读查看：可缩放、平移画布，点选节点查看其规则配置；节点清单不可拖入画布。'
+              : '拖拽节点到画布；从节点底部端口拖出连线；拖拽空白处平移画布。'}
             <div style={{ marginTop: 8 }}>
               <b style={{ color: 'var(--ink-2)' }}>表达式约定</b><br />
               <span className="mono" style={{ color: '#B45309' }}>c.</span> 策略入参 · <span className="mono" style={{ color: '#B45309' }}>f.</span> 特征编码<br />
@@ -1021,6 +1080,9 @@ export default function StrategyEditor() {
           onMouseDownCapture={recordField}
           onKeyDownCapture={recordField}
         >
+          {/* 只读模式整块禁用：fieldset disabled 覆盖内部所有 input/select/textarea/button，
+              比逐个控件加 disabled 可靠（删除按钮等也一并锁住） */}
+          <fieldset disabled={readOnly} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
           {selNodeObj ? (
             <NodeProp
               node={selNodeObj}
@@ -1042,9 +1104,14 @@ export default function StrategyEditor() {
           ) : (
             <div className="empty" style={{ padding: '48px 12px' }}>
               <div className="empty-title" style={{ fontSize: 14 }}>选择画布中的节点</div>
-              <div className="empty-desc">左侧拖拽节点入画布，从端口拖出连线<br />选中节点或连线后在此配置</div>
+              <div className="empty-desc">
+                {readOnly
+                  ? <>点选画布中的节点或连线<br />在此查看它的规则配置（只读）</>
+                  : <>左侧拖拽节点入画布，从端口拖出连线<br />选中节点或连线后在此配置</>}
+              </div>
             </div>
           )}
+          </fieldset>
         </div>
       </div>
       </div>
@@ -1054,7 +1121,11 @@ export default function StrategyEditor() {
           {nodes.length} 节点 · {edges.length} 连线
           {issueCount > 0 && <> · <b className="cf-warn">{issueCount} 个节点待完善</b></>}
         </span>
-        <span className="cf-tip">Delete 删除选中 · Esc 取消选中 · 分支端口 c0 / c1 / … 之后固定接 else</span>
+        <span className="cf-tip">
+          {readOnly
+            ? '只读查看 · 可缩放 / 平移 / 选中查看 · Esc 取消选中'
+            : 'Delete 删除选中 · Esc 取消选中 · 分支端口 c0 / c1 / … 之后固定接 else'}
+        </span>
       </div>
     </div>
   );

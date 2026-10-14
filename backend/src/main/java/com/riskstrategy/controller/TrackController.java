@@ -50,6 +50,12 @@ public class TrackController {
         return ApiResponse.ok(trackService.detail(id));
     }
 
+    /** 只读：该 trace 对应的策略画布（节点 / 连线），前端据此回看运行路线并高亮 */
+    @GetMapping("/{id}/canvas")
+    public ApiResponse<?> canvas(@PathVariable Long id) {
+        return ApiResponse.ok(trackService.canvasOf(id));
+    }
+
     // ---- gap endpoints ----
 
     @GetMapping("/stats")

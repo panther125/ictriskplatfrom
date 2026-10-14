@@ -1,13 +1,20 @@
 package com.riskstrategy.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.riskstrategy.dto.DegradeSourceDTO;
 import com.riskstrategy.dto.TrackDTO;
 import com.riskstrategy.dto.TrackReplayDTO;
 import com.riskstrategy.dto.TrackStatsDTO;
+import com.riskstrategy.entity.Decision;
+import com.riskstrategy.entity.DecisionBranch;
+import com.riskstrategy.entity.Rule;
 import com.riskstrategy.entity.TrackRecord;
 import com.riskstrategy.entity.TrackSamplingConfig;
 import com.riskstrategy.entity.TrackStep;
 import com.riskstrategy.entity.TrackVar;
+import com.riskstrategy.mapper.DecisionBranchMapper;
+import com.riskstrategy.mapper.DecisionMapper;
+import com.riskstrategy.mapper.RuleMapper;
 import com.riskstrategy.mapper.TrackRecordMapper;
 import com.riskstrategy.mapper.TrackSamplingConfigMapper;
 import com.riskstrategy.mapper.TrackStepMapper;
@@ -19,6 +26,8 @@ import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Track 链路追踪引擎。
@@ -38,15 +47,27 @@ public class TrackService {
     private final TrackStepMapper stepMapper;
     private final TrackVarMapper varMapper;
     private final TrackSamplingConfigMapper samplingConfigMapper;
+    private final DecisionMapper decisionMapper;
+    private final RuleMapper ruleMapper;
+    private final DecisionBranchMapper branchMapper;
+    private final ObjectMapper objectMapper;
 
     public TrackService(TrackRecordMapper recordMapper,
                         TrackStepMapper stepMapper,
                         TrackVarMapper varMapper,
-                        TrackSamplingConfigMapper samplingConfigMapper) {
+                        TrackSamplingConfigMapper samplingConfigMapper,
+                        DecisionMapper decisionMapper,
+                        RuleMapper ruleMapper,
+                        DecisionBranchMapper branchMapper,
+                        ObjectMapper objectMapper) {
         this.recordMapper = recordMapper;
         this.stepMapper = stepMapper;
         this.varMapper = varMapper;
         this.samplingConfigMapper = samplingConfigMapper;
+        this.decisionMapper = decisionMapper;
+        this.ruleMapper = ruleMapper;
+        this.branchMapper = branchMapper;
+        this.objectMapper = objectMapper;
     }
 
     /**
@@ -103,6 +124,93 @@ public class TrackService {
         TrackRecord record = recordMapper.selectById(id);
         if (record == null) throw new RuntimeException("Trace 不存在: " + id);
         return assemble(record);
+    }
+
+    /**
+     * 只读解析该 Trace 对应的策略画布（编排节点 + 连线），用于决策日志里回看运行路线。
+     *
+     * <p>取数优先级：记录里「策略 + 版本号」对应的画布（decision/rule）→ 该策略最新有内容的
+     * 画布（FALLBACK，附说明）。纯查询，不派生草稿、不写任何表。
+     */
+    public Map<String, Object> canvasOf(Long trackId) {
+        TrackRecord record = recordMapper.selectById(trackId);
+        if (record == null) throw new RuntimeException("Trace 不存在: " + trackId);
+        String want = trim(record.getVersion());
+        List<Decision> decisions = decisionMapper.selectByStrategyId(record.getStrategyId());
+
+        Decision target = decisions.stream()
+                .filter(d -> !want.isEmpty() && want.equalsIgnoreCase(trim(d.getVersionNo())))
+                .findFirst().orElse(null);
+        String source = "EXACT";
+        String note = null;
+        if (target == null || ruleMapper.selectByDecisionIdOrderById(target.getId()).isEmpty()) {
+            Decision latest = decisions.stream()
+                    .filter(d -> !ruleMapper.selectByDecisionIdOrderById(d.getId()).isEmpty())
+                    .max(Comparator.comparingInt(d -> versionNum(d.getVersionNo())))
+                    .orElse(null);
+            target = latest;
+            if (latest == null) {
+                source = "EMPTY";
+                note = "该策略暂无画布内容。";
+            } else {
+                source = "FALLBACK";
+                note = "版本 " + (want.isEmpty() ? "—" : want) + " 未留存画布，展示该策略最新编排（"
+                        + trim(latest.getVersionNo()) + "）作参照，与当次运行口径未必完全一致。";
+            }
+        }
+
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("strategyId", record.getStrategyId());
+        out.put("strategyName", record.getStrategyName());
+        out.put("traceVersion", record.getVersion());
+        out.put("versionNo", target == null ? record.getVersion() : trim(target.getVersionNo()));
+        out.put("source", source);
+        out.put("note", note);
+
+        List<Map<String, Object>> nodes = new ArrayList<>();
+        List<Map<String, Object>> edges = new ArrayList<>();
+        if (target != null) {
+            for (Rule r : ruleMapper.selectByDecisionIdOrderById(target.getId())) {
+                Map<String, Object> n = new LinkedHashMap<>();
+                n.put("nodeKey", r.getNodeKey());
+                n.put("nodeType", r.getNodeType());
+                n.put("title", r.getTitle());
+                n.put("x", r.getX() == null ? 0 : r.getX());
+                n.put("y", r.getY() == null ? 0 : r.getY());
+                n.put("config", parseConfig(r.getConfigJson()));
+                nodes.add(n);
+            }
+            for (DecisionBranch b : branchMapper.selectByDecisionIdOrderById(target.getId())) {
+                Map<String, Object> e = new LinkedHashMap<>();
+                e.put("fromNode", b.getFromNode());
+                e.put("fromPort", b.getFromPort());
+                e.put("toNode", b.getToNode());
+                e.put("label", b.getLabel());
+                edges.add(e);
+            }
+        }
+        out.put("nodes", nodes);
+        out.put("edges", edges);
+        return out;
+    }
+
+    private Object parseConfig(String json) {
+        if (json == null || json.isBlank()) return Map.of();
+        try {
+            return objectMapper.readValue(json, Object.class);
+        } catch (Exception e) {
+            return Map.of();
+        }
+    }
+
+    private static String trim(String s) { return s == null ? "" : s.trim(); }
+
+    private static final Pattern VERSION_NUM = Pattern.compile("^v(\\d+)$", Pattern.CASE_INSENSITIVE);
+
+    private static int versionNum(String versionNo) {
+        if (versionNo == null) return 0;
+        Matcher m = VERSION_NUM.matcher(versionNo.trim());
+        return m.matches() ? Integer.parseInt(m.group(1)) : 0;
     }
 
     // ---- gap: stats ----
@@ -333,15 +441,16 @@ public class TrackService {
         });
         dto.setInput(parseInput(record.getInputJson()));
         dto.setHitPath(record.getHitPath() == null ? List.of() : List.of(record.getHitPath().split("→")));
-        dto.setResponse(Map.of(
-                "conclusion", record.getConclusion(),
-                "reasonCode", record.getReasonCode(),
-                "hitRule", record.getHitRule(),
-                "hitBundle", "sb_v12_r38",
-                "traceId", record.getTraceId(),
-                "elapsedMs", record.getTotalElapsedMs(),
-                "degraded", record.getDegraded() != null && record.getDegraded() == 1
-        ));
+        /* reasonCode 等字段可能为 NULL（如画布未产出输出的「—」结论），不能用 Map.of 组装 */
+        Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("conclusion", record.getConclusion());
+        resp.put("reasonCode", record.getReasonCode());
+        resp.put("hitRule", record.getHitRule());
+        resp.put("hitBundle", "sb_v12_r38");
+        resp.put("traceId", record.getTraceId());
+        resp.put("elapsedMs", record.getTotalElapsedMs());
+        resp.put("degraded", record.getDegraded() != null && record.getDegraded() == 1);
+        dto.setResponse(resp);
         dto.setDegraded(record.getDegraded() != null && record.getDegraded() == 1);
         return dto;
     }

@@ -112,9 +112,13 @@ export const api = {
   strategies: {
     // 策略管理列表：草稿 / 已发布
     list: () => http.get('/strategies'),
+    // 新增策略：落策略行并初始化 v1 草稿版本（可用 inheritFromStrategyId 指定初始画布的继承源）
+    create: (body) => http.post('/strategies', body),
     // 策略内部版本列表：草稿 / 已发布 / 已下线 + 流量比例 + 切流方式
     versions: (strategyId) => http.get(`/strategies/${strategyId}/versions`),
-    // 某版本的编排图（节点 + 连线）
+    // 新增版本：新版本继承上一个画布的节点与连线配置（可用 baseVersionNo 指定继承源）
+    createVersion: (strategyId, body) => http.post(`/strategies/${strategyId}/versions`, body || {}),
+    // 查看某版本的画布（只读）：节点 + 连线 + 画布来源说明（canvasSource / canvasNote）
     graph: (versionId) => http.get(`/strategies/versions/${versionId}/graph`),
     // 决策级切流：为策略内多个版本分配份额（mode = RANDOM / PERCENT / WHITELIST）
     updateStrategyTraffic: (strategyId, body) => http.put(`/strategies/${strategyId}/traffic`, body),
@@ -122,8 +126,8 @@ export const api = {
     offlineVersion: (versionId) => http.post(`/strategies/versions/${versionId}/offline`)
   },
   decisions: {
-    // 取某策略的编排草稿（无草稿则自动创建，含开始/结束骨架）
-    byStrategy: (strategyId) => http.get(`/decisions/by-strategy/${strategyId}`),
+    // 打开编排草稿：不带 versionId 取最新草稿；带 versionId 打开该版本，无画布时自动派生新草稿
+    byStrategy: (strategyId, versionId) => http.get(`/decisions/by-strategy/${strategyId}${versionId ? `?versionId=${versionId}` : ''}`),
     // 全量保存画布：节点入 rule 表，连线入 decision_branch 表
     saveGraph: (id, data) => http.put(`/decisions/${id}/graph`, data)
   },
@@ -135,6 +139,8 @@ export const api = {
     recent: () => http.get('/track/recent'),
     search: (q) => http.get('/track/search', { params: q }),
     detail: (id) => http.get(`/track/${id}`),
+    // 该 trace 对应的策略画布（只读，节点/连线），用于运行路线高亮
+    canvas: (id) => http.get(`/track/${id}/canvas`),
     // ---- gap endpoints ----
     stats: (range) => http.get('/track/stats', { params: { range } }),
     samplingConfig: () => http.get('/track/sampling-config'),

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { StatusTag, Modal, EmptyState } from '../components/Common.jsx';
 import StrategyTrafficModal from '../components/StrategyTrafficModal.jsx';
@@ -8,6 +8,11 @@ import StrategyTrafficModal from '../components/StrategyTrafficModal.jsx';
 export default function StrategyVersions() {
   const { strategyId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  /* 从「新增策略」跳转而来时带创建上下文：提示新策略已建 + 一键进 v1 编排 */
+  const created = location.state?.created || null;
+  const [createdTipOpen, setCreatedTipOpen] = useState(!!created);
 
   const [meta, setMeta] = useState(null);
   const [versions, setVersions] = useState([]);
@@ -21,6 +26,18 @@ export default function StrategyVersions() {
   const [publishTarget, setPublishTarget] = useState(null);
   const [publishing, setPublishing] = useState(false);
   const [actingId, setActingId] = useState(null);
+
+  /* 新增版本弹窗：新版本继承上一个画布的节点与连线配置 */
+  const [createOpen, setCreateOpen] = useState(false);
+  const [baseVersionId, setBaseVersionId] = useState('');
+  const [basePreview, setBasePreview] = useState(null);
+  const [newNote, setNewNote] = useState('');
+  const [creating, setCreating] = useState(false);
+
+  /** 进入查看：已定版版本只读打开画布（可缩放、可看配置，不能改） */
+  const openViewer = (v) => navigate(`/strategy/${strategyId}/editor?versionId=${v.id}&mode=view`);
+  /** 进入编排：草稿/已下线版本打开编排画布；已下线且无画布时后端会派生新草稿并提示 */
+  const openEditor = (v) => navigate(`/strategy/${strategyId}/editor?versionId=${v.id}`);
 
   const refreshAll = async () => {
     const [list, vers] = await Promise.all([
@@ -74,6 +91,59 @@ export default function StrategyVersions() {
     }
   };
 
+  /* 默认继承最新版本（版本列表按 id 升序，末位即最新） */
+  const latestVersion = versions.length ? versions[versions.length - 1] : null;
+  /* 落地提示里「进入编排」的目标：新策略的 v1 草稿 */
+  const draftVersion = versions.find(v => v.status === 'DRAFT') || null;
+
+  const openCreate = () => {
+    setBaseVersionId(latestVersion ? String(latestVersion.id) : '');
+    setBasePreview(null);
+    setNewNote('');
+    setCreateOpen(true);
+  };
+
+  /* 打开弹窗或切换继承源时，先真实读一遍继承源的画布，让「继承什么」可见 */
+  useEffect(() => {
+    if (!createOpen || !baseVersionId) { setBasePreview(null); return undefined; }
+    let alive = true;
+    setBasePreview({ loading: true });
+    api.strategies.graph(baseVersionId)
+      .then((g) => {
+        if (!alive) return;
+        setBasePreview({
+          loading: false,
+          versionNo: g.versionNo,
+          canvasSource: g.canvasSource,
+          canvasNote: g.canvasNote,
+          nodeCount: (g.nodes || []).length,
+          edgeCount: (g.edges || []).length
+        });
+      })
+      .catch((e) => { if (alive) setBasePreview({ loading: false, error: e.message }); });
+    return () => { alive = false; };
+  }, [createOpen, baseVersionId]);
+
+  const doCreateVersion = async () => {
+    setCreating(true);
+    try {
+      const base = versions.find((v) => String(v.id) === String(baseVersionId));
+      const g = await api.strategies.createVersion(strategyId, {
+        baseVersionNo: base ? base.versionNo : undefined,
+        description: newNote.trim() || undefined
+      });
+      setCreateOpen(false);
+      // 直接进入新版本的编排页（新版本已继承画布，可立即修改）
+      // 继承来源随 URL 带过去：跳转后是重新加载，只有 URL 能把这个上下文带上
+      const src = base ? `&inherited=${encodeURIComponent(base.versionNo)}` : '';
+      navigate(`/strategy/${strategyId}/editor?versionId=${g.versionId}${src}`);
+    } catch (e) {
+      setErr(e.message || '新增版本失败');
+    } finally {
+      setCreating(false);
+    }
+  };
+
   const pubLine = (v) => [
     v.publishedAt ? String(v.publishedAt).replace('T', ' ').slice(0, 16) : null,
     v.publishedBy
@@ -93,6 +163,11 @@ export default function StrategyVersions() {
           <button className="btn" onClick={() => { setLoading(true); reload().finally(() => setLoading(false)); }} disabled={loading}>
             {loading ? '刷新中…' : '刷新'}
           </button>
+          <button
+            className="btn primary"
+            onClick={openCreate}
+            title="新建一个草稿版本，画布配置从上一个版本完整继承"
+          >+ 新增版本</button>
         </div>
       </div>
 
@@ -100,6 +175,24 @@ export default function StrategyVersions() {
         <div className="warn-bar" style={{ marginBottom: 16 }}>
           <span><b style={{ color: 'var(--reject)' }}>加载失败</b> {err}</span>
           <button className="btn sm" onClick={reload}>重试</button>
+        </div>
+      )}
+
+      {/* 新增策略的落地提示：策略与 v1 草稿是一起产生的，这里把「下一步做什么」说清楚 */}
+      {created && createdTipOpen && (
+        <div className="ok-bar" style={{ marginBottom: 16, justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>
+            策略 <b>{created.name}</b>（<span className="mono">{created.code}</span>）已创建，v1 草稿版本已就绪
+            {created.inheritedFrom
+              ? `，画布已继承「${created.inheritedFrom.name}」最新编排的节点与连线`
+              : '（空画布，仅种入 开始 / 结束）'}。
+          </span>
+          <div style={{ display: 'flex', gap: 8, flex: 'none' }}>
+            {draftVersion && (
+              <button className="btn sm primary" onClick={() => openEditor(draftVersion)}>进入 {draftVersion.versionNo} 编排</button>
+            )}
+            <button className="btn sm" onClick={() => setCreatedTipOpen(false)}>知道了</button>
+          </div>
         </div>
       )}
 
@@ -143,7 +236,9 @@ export default function StrategyVersions() {
         <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
           <div className="card-head">
             <b>版本列表 · {versions.length} 个版本</b>
-            <span className="sub" style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>一行一个版本 · 含切流份额与行级操作</span>
+            <span className="sub" style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>
+              一行一个版本 · 已上线版本给「查看」（画布只读定版），草稿给「编排」；修改请用「新增版本」继承后发布
+            </span>
           </div>
           <div className="table-wrap">
             <table className="table" style={{ minWidth: 960 }}>
@@ -191,7 +286,22 @@ export default function StrategyVersions() {
                     </td>
                     <td>
                       <div className="table-actions">
-                        <button className="btn sm" onClick={() => navigate(`/strategy/${strategyId}/editor`)}>编排</button>
+                        {v.status === 'PUBLISHED' ? (
+                          /* 已上线版本内容已定版：只给「查看」，画布只读展示（后端同样拦截写入） */
+                          <button
+                            className="btn sm"
+                            title="只读查看该版本的画布内容（已定版，不能修改）"
+                            onClick={() => openViewer(v)}
+                          >查看</button>
+                        ) : (
+                          <button
+                            className="btn sm"
+                            title={v.status === 'OFFLINE'
+                              ? '已下线版本：打开编排页调整后可作为新版本重新发布'
+                              : '进入编排页编辑该草稿版本'}
+                            onClick={() => openEditor(v)}
+                          >编排</button>
+                        )}
                         <button className="btn sm" onClick={() => { setSplitFocusId(v.id); setSplitOpen(true); }}>切流</button>
                         {v.status === 'DRAFT' && (
                           <button className="btn sm primary" onClick={() => setPublishTarget(v)}>发布</button>
@@ -211,8 +321,8 @@ export default function StrategyVersions() {
           {!loading && !versions.length && !err && (
             <EmptyState
               title="该策略还没有版本"
-              desc="先到编排页新建版本，再回到这里做流量分配与发布。"
-              action={<button className="btn primary" onClick={() => navigate(`/strategy/${strategyId}/editor`)}>去编排</button>}
+              desc="新增一个版本开始编排——新版本会先种入开始/结束骨架，之后的版本都会继承上一个画布。"
+              action={<button className="btn primary" onClick={openCreate}>+ 新增版本</button>}
             />
           )}
         </div>
@@ -227,6 +337,76 @@ export default function StrategyVersions() {
         onClose={() => setSplitOpen(false)}
         onSaved={reload}
       />
+
+      {/* 新增版本：新版本继承上一个画布的节点、连线、坐标与规则配置 */}
+      <Modal
+        open={createOpen}
+        title="新增版本"
+        sub="POST /api/strategies/{strategyId}/versions"
+        onClose={() => !creating && setCreateOpen(false)}
+        width={560}
+        footer={(
+          <>
+            <button className="btn" disabled={creating} onClick={() => setCreateOpen(false)}>取消</button>
+            <button className="btn primary" disabled={creating || !versions.length} onClick={doCreateVersion}>
+              {creating ? '创建中…' : '创建并进入编排'}
+            </button>
+          </>
+        )}
+      >
+        <div className="field" style={{ marginBottom: 14 }}>
+          <label>继承哪个版本的画布配置</label>
+          <select className="select" value={baseVersionId} onChange={(e) => setBaseVersionId(e.target.value)}>
+            {versions.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.versionNo} · {v.statusText}{v.stateLabel ? ` · ${v.stateLabel}` : ''}
+              </option>
+            ))}
+          </select>
+          <div className="hint" style={{ marginTop: 6 }}>
+            默认继承最新的 {latestVersion ? latestVersion.versionNo : '—'}；新版本会完整复制它的节点、连线、坐标与规则配置。
+          </div>
+        </div>
+
+        {basePreview?.loading && <div className="hint">正在读取继承源画布…</div>}
+        {basePreview?.error && (
+          <div className="warn-bar" style={{ justifyContent: 'flex-start' }}>
+            <span>继承源画布读取失败：{basePreview.error}。仍可创建，将使用开始/结束空骨架。</span>
+          </div>
+        )}
+        {basePreview && !basePreview.loading && !basePreview.error && (
+          <div className="ok-bar" style={{ alignItems: 'flex-start', flexDirection: 'column', gap: 4 }}>
+            <div>
+              将继承 <b className="mono">{basePreview.versionNo}</b> 的画布：
+              <b> {basePreview.nodeCount} 个节点</b> · <b>{basePreview.edgeCount} 条连线</b>
+            </div>
+            {basePreview.canvasSource === 'FALLBACK' && (
+              <div style={{ fontSize: 12.5 }}>
+                {basePreview.canvasNote || `该版本未留存画布快照，将继承该策略最新的编排内容。`}
+              </div>
+            )}
+            {basePreview.canvasSource === 'EMPTY' && (
+              <div style={{ fontSize: 12.5 }}>该版本没有画布内容，将使用开始/结束空骨架。</div>
+            )}
+          </div>
+        )}
+
+        <div className="field" style={{ marginTop: 14, marginBottom: 0 }}>
+          <label>版本说明（可选）</label>
+          <input
+            className="input"
+            value={newNote}
+            onChange={(e) => setNewNote(e.target.value)}
+            placeholder="如：调高逾期阈值后再发布"
+          />
+        </div>
+
+        <div className="warn-bar" style={{ marginTop: 14, justifyContent: 'flex-start' }}>
+          <span>
+            新版本以<b>草稿</b>创建，版本号自动生成；原版本不受影响。确认后直接进入编排页，改完回本页点「发布」。
+          </span>
+        </div>
+      </Modal>
 
       {/* 发布确认弹窗（全量切换会清除现有切流分配） */}
       <Modal

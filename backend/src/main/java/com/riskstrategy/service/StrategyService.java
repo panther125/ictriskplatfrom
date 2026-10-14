@@ -2,6 +2,7 @@ package com.riskstrategy.service;
 
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.riskstrategy.common.StrategyStatus;
+import com.riskstrategy.dto.CreateStrategyDTO;
 import com.riskstrategy.dto.StrategyGraphDTO;
 import com.riskstrategy.dto.StrategyItemDTO;
 import com.riskstrategy.dto.StrategyTrafficDTO;
@@ -25,27 +26,34 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Service
 public class StrategyService {
+
+    /** 策略编码：小写字母开头，仅含小写字母 / 数字 / 下划线。 */
+    private static final Pattern CODE_PATTERN = Pattern.compile("^[a-z][a-z0-9_]{2,127}$");
 
     private final StrategyMapper strategyMapper;
     private final StrategyVersionMapper versionMapper;
     private final DecisionNodeMapper nodeMapper;
     private final NodeEdgeMapper edgeMapper;
     private final GrayscaleRuleMapper grayscaleRuleMapper;
+    private final DecisionService decisionService;
 
     public StrategyService(StrategyMapper strategyMapper,
                            StrategyVersionMapper versionMapper,
                            DecisionNodeMapper nodeMapper,
                            NodeEdgeMapper edgeMapper,
-                           GrayscaleRuleMapper grayscaleRuleMapper) {
+                           GrayscaleRuleMapper grayscaleRuleMapper,
+                           DecisionService decisionService) {
         this.strategyMapper = strategyMapper;
         this.versionMapper = versionMapper;
         this.nodeMapper = nodeMapper;
         this.edgeMapper = edgeMapper;
         this.grayscaleRuleMapper = grayscaleRuleMapper;
+        this.decisionService = decisionService;
     }
 
     public List<Strategy> list() {
@@ -71,27 +79,77 @@ public class StrategyService {
      * 一个决策可有多个版本同时在线（切流份额），在线版本按 新→旧 返回。
      */
     public List<StrategyItemDTO> manageList() {
-        return strategyMapper.selectList(null).stream().map(s -> {
-            List<StrategyVersion> versions = versionMapper.selectByStrategyIdOrderById(s.getId());
-            List<StrategyVersion> online = versions.stream()
-                    .filter(v -> StrategyStatus.isPublished(v.getStatus()))
-                    .sorted(Comparator.comparing(StrategyVersion::getId).reversed())
-                    .collect(Collectors.toList());
+        return strategyMapper.selectList(null).stream().map(this::toItem).collect(Collectors.toList());
+    }
 
-            StrategyItemDTO dto = new StrategyItemDTO();
-            dto.setId(s.getId());
-            dto.setCode(s.getCode());
-            dto.setName(s.getName());
-            dto.setCategory(s.getCategory());
-            dto.setDescription(s.getDescription());
-            dto.setOwner(s.getOwner());
-            dto.setStatus(online.isEmpty() ? "DRAFT" : "PUBLISHED");
-            dto.setStatusText(online.isEmpty() ? "草稿" : "已发布");
-            dto.setVersionCount(versions.size());
-            dto.setOnlineVersions(online.stream().map(this::onlineVersionOf).collect(Collectors.toList()));
-            dto.setUpdatedAt(s.getUpdatedAt());
-            return dto;
-        }).collect(Collectors.toList());
+    /** 单条策略的列表项：状态由该策略下的版本推导。 */
+    private StrategyItemDTO toItem(Strategy s) {
+        List<StrategyVersion> versions = versionMapper.selectByStrategyIdOrderById(s.getId());
+        List<StrategyVersion> online = versions.stream()
+                .filter(v -> StrategyStatus.isPublished(v.getStatus()))
+                .sorted(Comparator.comparing(StrategyVersion::getId).reversed())
+                .collect(Collectors.toList());
+
+        StrategyItemDTO dto = new StrategyItemDTO();
+        dto.setId(s.getId());
+        dto.setCode(s.getCode());
+        dto.setName(s.getName());
+        dto.setCategory(s.getCategory());
+        dto.setDescription(s.getDescription());
+        dto.setOwner(s.getOwner());
+        dto.setStatus(online.isEmpty() ? "DRAFT" : "PUBLISHED");
+        dto.setStatusText(online.isEmpty() ? "草稿" : "已发布");
+        dto.setVersionCount(versions.size());
+        dto.setOnlineVersions(online.stream().map(this::onlineVersionOf).collect(Collectors.toList()));
+        dto.setUpdatedAt(s.getUpdatedAt());
+        return dto;
+    }
+
+    /**
+     * 新建策略：落 strategy 行 + 初始化 v1 草稿版本（画布成对落库，创建后即可直接编排）。
+     *
+     * <p>编码是策略对外的主键语义（试算 / 留痕 / 发布都按 code 定位），因此强校验：
+     * 小写字母开头、只含小写字母数字下划线、全局唯一。继承源只能是自己之外的已有策略。
+     */
+    @Transactional
+    public StrategyItemDTO createStrategy(CreateStrategyDTO req) {
+        if (req == null) throw new RuntimeException("请填写策略信息");
+        String name = trim(req.getName());
+        if (name.isEmpty()) throw new RuntimeException("策略名称不能为空");
+        if (name.length() > 128) throw new RuntimeException("策略名称最长 128 个字符");
+
+        String rawCode = trim(req.getCode());
+        if (rawCode.isEmpty()) throw new RuntimeException("策略编码不能为空");
+        String code = rawCode.toLowerCase(Locale.ROOT);
+        if (!CODE_PATTERN.matcher(code).matches()) {
+            throw new RuntimeException("策略编码需以小写字母开头，仅含小写字母、数字与下划线（如 loan_apply_v3）");
+        }
+        // uk_strategy_code 是唯一索引，这里先给出人话提示而不是冒数据库异常
+        boolean dup = strategyMapper.selectList(null).stream()
+                .anyMatch(s -> code.equalsIgnoreCase(trim(s.getCode())));
+        if (dup) throw new RuntimeException("策略编码已被占用：" + code);
+
+        Long inheritFrom = req.getInheritFromStrategyId();
+        if (inheritFrom != null && strategyMapper.selectById(inheritFrom) == null) {
+            throw new RuntimeException("继承源策略不存在: " + inheritFrom);
+        }
+
+        String category = trim(req.getCategory());
+        String description = trim(req.getDescription());
+        String owner = trim(req.getOwner());
+
+        Strategy s = new Strategy();
+        s.setCode(code);
+        s.setName(name);
+        s.setCategory(category.isEmpty() ? "决策中心" : category);
+        s.setDescription(description.isEmpty() ? null : description);
+        s.setOwner(owner.isEmpty() ? null : owner);
+        strategyMapper.insert(s);
+
+        // v1 草稿：与策略同时诞生，画布与版本记录成对落库（版本管理页据此可发布）
+        decisionService.bootstrap(s, inheritFrom);
+        // 回读一次：created_at / updated_at 由库默认值生成，直接返回实体这些字段还是 null
+        return toItem(strategyMapper.selectById(s.getId()));
     }
 
     /** 在线版本展示项：份额 / 方式取灰度规则；WHITELIST 下 pct=100 即兜底版本 */
@@ -366,5 +424,9 @@ public class StrategyService {
 
     private static String blankToNull(String s) {
         return (s == null || s.trim().isEmpty()) ? null : s.trim();
+    }
+
+    private static String trim(String s) {
+        return s == null ? "" : s.trim();
     }
 }
