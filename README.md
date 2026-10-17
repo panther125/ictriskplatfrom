@@ -83,6 +83,47 @@ ictriskplatfrom/
 └── docs/                         # 设计文档（见下方文档索引）
 ```
 
+## Docker 一键部署
+
+前置：安装 Docker（含 Compose v2）。全部编排与构建文件聚合在 `docker/` 目录：
+
+```
+docker/
+├── docker-compose.yml        # 四服务编排：mysql / python-runner / backend / frontend
+├── backend.Dockerfile        # 后端多阶段构建（Maven+JDK21 → JRE）
+├── frontend.Dockerfile       # 前端 Vite 构建 + Nginx 托管
+├── python-runner.Dockerfile  # Python 衍生特征执行服务
+├── nginx.conf                # 前端站点 + /api 反向代理配置
+├── maven-settings.xml        # Maven 阿里云镜像（加速构建）
+└── .env.example              # 端口 / 口令等可覆盖变量
+```
+
+一键启动：
+
+```powershell
+cd docker
+Copy-Item .env.example .env    # 可选：自定义端口、MySQL 口令、JVM 参数
+docker compose up -d --build
+```
+
+启动完成后浏览器打开 <http://localhost>（端口可在 `.env` 的 `FRONTEND_PORT` 修改）。
+
+说明：
+
+- 首次启动会自动初始化数据库（`init.sql` → 监控全链路迁移 → 切流演示数据），仅在数据卷为空时执行一次。
+- 服务拓扑：`frontend(nginx:80)` → `/api` 反代 → `backend(8080)` → `mysql(3306)`；`python-runner(8090)` 仅内网访问。
+- 后端配置通过环境变量注入，无需改动 `application.yml`。
+
+常用命令（均在 `docker/` 目录下执行）：
+
+```powershell
+docker compose ps                  # 查看服务状态
+docker compose logs -f backend     # 跟踪后端日志
+docker compose up -d --build       # 重新构建并启动
+docker compose down                # 停止并移除容器
+docker compose down -v             # 停止并删除数据卷（重置数据库）
+```
+
 ## 快速开始
 
 ### 0. 环境要求

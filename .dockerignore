@@ -1,0 +1,24 @@
+# 所有镜像均以仓库根为构建上下文（见 docker/docker-compose.yml）
+.git
+.gitignore
+.idea
+.cursor
+.trae
+.workbuddy
+.backup-*
+**/node_modules
+**/dist
+**/logs
+**/target
+**/uploads
+**/__pycache__
+**/*.pyc
+uploads
+docs
+mockups
+vibe_images
+*.log
+*.pdf
+frontend/vite.config.js.timestamp-*
+docker/.env
+.env

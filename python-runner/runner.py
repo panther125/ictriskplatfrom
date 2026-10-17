@@ -340,8 +340,13 @@ def main():
         worker_main()
         return
 
-    port, workers = 8090, 2
+    # 默认仅监听回环（本地开发）；容器/跨机部署可通过环境变量放开
+    host = os.environ.get("PY_RUNNER_HOST", "127.0.0.1")
+    port = int(os.environ.get("PY_RUNNER_PORT", "8090"))
+    workers = 2
     for i, a in enumerate(args):
+        if a == "--host" and i + 1 < len(args):
+            host = args[i + 1]
         if a == "--port" and i + 1 < len(args):
             port = int(args[i + 1])
         if a == "--workers" and i + 1 < len(args):
@@ -350,9 +355,9 @@ def main():
     import uvicorn
     pool = WorkerPool(workers)
     app = _create_app(pool)
-    print("衍生特征 Python 执行服务已启动: http://127.0.0.1:%d (workers=%d, pandas=%s)"
-          % (port, workers, PANDAS_VERSION or "不可用"), flush=True)
-    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+    print("衍生特征 Python 执行服务已启动: http://%s:%d (workers=%d, pandas=%s)"
+          % (host, port, workers, PANDAS_VERSION or "不可用"), flush=True)
+    uvicorn.run(app, host=host, port=port, log_level="warning")
 
 
 if __name__ == "__main__":
